@@ -1,0 +1,192 @@
+package com.example.game.model
+
+enum class QualityMode(val labelUk: String) {
+    AUTO("АВТО (Exynos)"),
+    LOW("НИЗЬКА"),
+    MEDIUM("СЕРЕДНЯ"),
+    HIGH("ВИСОКА")
+}
+
+enum class QualityTier(
+    val label: String,
+    val resolutionScale: Float,
+    val maxSimultaneousEntities: Int,
+    val maxParticles: Int,
+    val shaderLightingStrength: Float,
+    val warmthTintStrength: Float,
+    val enableTorchFlicker: Boolean,
+    val enableTorchGlow: Boolean,
+    val enableGroundShadows: Boolean,
+    val enableScreenShake: Boolean
+) {
+    LOW(
+        label = "LOW",
+        resolutionScale = 0.70f,
+        maxSimultaneousEntities = 10,
+        maxParticles = 12,
+        shaderLightingStrength = 0.0f,
+        warmthTintStrength = 0.0f,
+        enableTorchFlicker = false,
+        enableTorchGlow = false,
+        enableGroundShadows = false,
+        enableScreenShake = false
+    ),
+    MEDIUM(
+        label = "MED",
+        resolutionScale = 0.85f,
+        maxSimultaneousEntities = 16,
+        maxParticles = 32,
+        shaderLightingStrength = 0.65f,
+        warmthTintStrength = 0.55f,
+        enableTorchFlicker = true,
+        enableTorchGlow = true,
+        enableGroundShadows = true,
+        enableScreenShake = true
+    ),
+    HIGH(
+        label = "HIGH",
+        resolutionScale = 1.0f,
+        maxSimultaneousEntities = 24,
+        maxParticles = 64,
+        shaderLightingStrength = 1.0f,
+        warmthTintStrength = 1.0f,
+        enableTorchFlicker = true,
+        enableTorchGlow = true,
+        enableGroundShadows = true,
+        enableScreenShake = true
+    )
+}
+
+/**
+ * Resolved per-frame rendering and shader parameters consumed lock-free by the OpenGL ES pipeline.
+ */
+data class RenderConfig(
+    val activeTier: QualityTier = QualityTier.HIGH,
+    val isCustomOverride: Boolean = false,
+    val resolutionScale: Float = 1.0f,
+    val maxSimultaneousEntities: Int = 24,
+    val maxParticles: Int = 64,
+    val shaderLightingStrength: Float = 1.0f,
+    val warmthTintStrength: Float = 1.0f,
+    val torchFlickerEnabled: Boolean = true,
+    val enableTorchGlow: Boolean = true,
+    val enableGroundShadows: Boolean = true,
+    val enableScreenShake: Boolean = true
+) {
+    companion object {
+        fun fromTier(tier: QualityTier, isCustom: Boolean = false): RenderConfig = RenderConfig(
+            activeTier = tier,
+            isCustomOverride = isCustom,
+            resolutionScale = tier.resolutionScale,
+            maxSimultaneousEntities = tier.maxSimultaneousEntities,
+            maxParticles = tier.maxParticles,
+            shaderLightingStrength = tier.shaderLightingStrength,
+            warmthTintStrength = tier.warmthTintStrength,
+            torchFlickerEnabled = tier.enableTorchFlicker,
+            enableTorchGlow = tier.enableTorchGlow,
+            enableGroundShadows = tier.enableGroundShadows,
+            enableScreenShake = tier.enableScreenShake
+        )
+    }
+}
+
+enum class PauseMenuTab {
+    GAME,
+    GRAPHICS
+}
+
+enum class Direction {
+    SOUTH,
+    NORTH,
+    EAST,
+    WEST
+}
+
+enum class ItemType {
+    WEAPON,
+    SHIELD,
+    HELMET,
+    CLOAK,
+    CONSUMABLE,
+    GOLD
+}
+
+data class RpgItem(
+    val id: String,
+    val nameUk: String,
+    val descriptionUk: String,
+    val type: ItemType,
+    val spriteId: SpriteId,
+    val atkBonus: Int = 0,
+    val defBonus: Int = 0,
+    val spdBonus: Float = 0f,
+    val healAmount: Int = 0,
+    val count: Int = 1
+)
+
+data class DialogueChoice(
+    val labelUk: String,
+    val nextNodeId: String? = null,
+    val actionTag: String? = null
+)
+
+data class DialogueNode(
+    val id: String,
+    val speakerUk: String,
+    val portrait: SpriteId,
+    val textUk: String,
+    val choices: List<DialogueChoice>
+)
+
+data class ActiveDialogue(
+    val npcId: String,
+    val node: DialogueNode
+)
+
+data class TelemetrySnapshot(
+    val fps: Int = 60,
+    val frameTimeMs: Float = 16.6f,
+    val qualityMode: QualityMode = QualityMode.AUTO,
+    val activeTier: QualityTier = QualityTier.HIGH,
+    val isCustomOverride: Boolean = false,
+    val resolutionScale: Float = 1.0f,
+    val shaderLightingStrength: Float = 1.0f,
+    val activeEntities: Int = 0,
+    val activeParticles: Int = 0,
+    val drawCalls: Int = 0
+)
+
+enum class GamePhase {
+    TITLE,
+    PLAYING,
+    VICTORY,
+    DEFEAT
+}
+
+data class HudUiState(
+    val phase: GamePhase = GamePhase.TITLE,
+    val hp: Int = 120,
+    val maxHp: Int = 120,
+    val stamina: Float = 100f,
+    val maxStamina: Float = 100f,
+    val gold: Int = 25,
+    val atkTotal: Int = 18,
+    val defTotal: Int = 4,
+    val kills: Int = 0,
+    val totalBosses: Int = 2,
+    val bossesDefeated: Int = 0,
+    val gateUnlocked: Boolean = false,
+    val questHintUk: String = "Знайдіть важіль у коридорі та поговоріть з Хроністом",
+    val interactPromptUk: String? = null,
+    val cleaveCooldownRatio: Float = 0f,
+    val dashCooldownRatio: Float = 0f,
+    val potionCount: Int = 2,
+    val equippedWeapon: RpgItem? = null,
+    val equippedShield: RpgItem? = null,
+    val equippedHelmet: RpgItem? = null,
+    val equippedCloak: RpgItem? = null,
+    val backpack: List<RpgItem> = emptyList(),
+    val activeDialogue: ActiveDialogue? = null,
+    val toastMessageUk: String? = null,
+    val telemetry: TelemetrySnapshot = TelemetrySnapshot()
+)

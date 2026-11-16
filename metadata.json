@@ -1,0 +1,6 @@
+{
+  "name": "IronCrypt",
+  "description": "Gothic-industrial top-down action RPG with OpenGL ES 2.0 combat, inventory, dialogues, and Exynos 7870 adaptive quality scaling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

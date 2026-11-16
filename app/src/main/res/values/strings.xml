@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">IronCrypt</string>
+    <string name="title_subtitle">GOTHIC-INDUSTRIAL ACTION RPG</string>
+    <string name="title_exynos_tag">EXYNOS 7870 / MALI-T830 TUNED</string>
+    <string name="action_start_expedition">НОВА ЕКСПЕДИЦІЯ</string>
+    <string name="action_continue_expedition">ПРОДОВЖИТИ ЕКСПЕДИЦІЮ</string>
+    <string name="action_resume">ПРОДОВЖИТИ</string>
+    <string name="action_save_game">ЗБЕРЕГТИ ГРУ</string>
+    <string name="action_load_game">ЗАВАНТАЖИТИ</string>
+    <string name="action_restart">НОВИЙ ЗАБІГ</string>
+    <string name="action_title_menu">ГОЛОВНЕ МЕНЮ</string>
+    <string name="action_pause">ПАУЗА</string>
+    <string name="action_graphics_settings">НАЛАШТУВАННЯ ГРАФІКИ</string>
+    <string name="action_attack">АТАКА</string>
+    <string name="action_cleave">УДАР</string>
+    <string name="action_dash">РИВОК</string>
+    <string name="action_interact">ДІЯ</string>
+    <string name="action_potion">ЗІЛЛЯ</string>
+    <string name="action_inventory">ІНВЕНТАР</string>
+    <string name="action_close">ЗАКРИТИ</string>
+    <string name="label_pause_tab_game">ГРА</string>
+    <string name="label_pause_tab_graphics">ГРАФІКА</string>
+    <string name="label_quality_mode">НАЛАШТУВАННЯ ГРАФІКИ</string>
+    <string name="label_equipment">СПОРЯДЖЕННЯ</string>
+    <string name="label_backpack">РЮКЗАК</string>
+    <string name="label_victory">ВАРТА КРИПТИ ПОВАЛЕНА</string>
+    <string name="label_defeat">ГЕРОЙ ПОЛІГ У КРИПТІ</string>
+</resources>

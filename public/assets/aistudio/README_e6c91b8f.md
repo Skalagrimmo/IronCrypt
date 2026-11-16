@@ -1,0 +1,810 @@
+# Beyond Oasis Recomp
+
+A native PC port of **Beyond Oasis (Sega Genesis)**, also sold as **The Story of Thor**,
+built from your own ROM. It plays in every language the game came out in: English, French,
+German, Spanish and Japanese (see [Languages](#languages)). No game data is included in this
+repository: every tool reads your ROM and checks its SHA-1 (the list is in
+`config/versions.json`).
+
+It is a static recompilation, not a decompilation: at build time the game's 68000 machine
+code is translated into C from your ROM, and anything not yet covered runs on an
+interpreter.
+
+## Playing it
+
+**You need your own ROM of the game:** Beyond Oasis (USA), or The Story of Thor from
+Europe, France, Germany, Spain or Japan. It is not included and never will be, and
+there is no ready-made game .exe to download: the built game contains the game's own code,
+translated to C, so it can only be made on your PC from your copy. The installer does that
+for you. It needs 64-bit Windows 10 or 11 and an internet connection for the first install.
+
+### Installing
+
+1. Download `Beyond-Oasis-Setup-<version>.exe` from
+   [Releases](https://github.com/OriginalSwayze/beyond-oasis-recomp/releases).
+2. Run it. If Windows SmartScreen says it protected your PC (the installer is not
+   code-signed), choose **More info**, then **Run anyway**.
+3. **Welcome:** read what it will do, then **Next**.
+4. **Install folder:** keep the default (`%LOCALAPPDATA%\Programs\Beyond Oasis`, no
+   administrator rights needed) or **Browse** for another, then **Next**. Plan for about
+   700 MB.
+5. **Your ROMs:** **Browse** to your ROM (`.md`, `.bin` or `.gen`, or a `.zip` with one
+   inside), or drop it on the window. Pick more than one, from different countries, to switch
+   between their languages in the game; **Add** picks more. Each is checked by its SHA-1 at
+   once: a green tick with its language means it is one Setup knows; otherwise Setup says why
+   not (a hack, a version it does not know, a headered `.smd` dump). Then **Install**.
+6. **Installing:** Setup downloads the build tools it needs from their publishers
+   ([Node.js](https://nodejs.org/), [CMake](https://cmake.org/),
+   [Ninja](https://ninja-build.org/) and [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw),
+   about 260 MB, each checked against a pinned SHA-256) into the install folder, unless they
+   are already on your PC, then recompiles your ROM to C and builds the game. This takes a
+   few minutes; the bar and the lines under it show where it is.
+7. **Ready to play:** choose whether to put a shortcut on the desktop and start the game,
+   then **Finish**. Beyond Oasis is in the Start menu from now on.
+
+The game, `BeyondOasis.exe`, sits in the install folder with its `settings.ini`, saves and
+save states. Setup copies your ROM into the folder's `rom` folder, so the game keeps
+working if you move or delete the original.
+
+**Updating:** run the newer Setup. It finds the install, offers the ROM it used, and builds
+the game again; your settings, saves and save states stay as they are. (Settings > Apps >
+Beyond Oasis Recomp > Modify does the same with the Setup you have.)
+
+**Removing:** Settings > Apps > Beyond Oasis Recomp > Uninstall. It removes the game, its
+build tools and the shortcuts, and asks whether to keep your settings, saves and save
+states. Your ROM file elsewhere is never touched.
+
+**If the install stops**, Setup shows the reason, and **Back** lets you try again. The
+usual causes: no internet connection while it downloads the tools, or security software
+holding a file it has just written (try again, or add an exception for the install folder).
+
+### Without the installer
+
+`Beyond-Oasis-Recomp-<version>.zip` on the same page holds the same files to build by hand
+(not "Source code": that leaves out the third-party code the build needs). Unzip it
+somewhere with a short path, double-click **Build Beyond Oasis.bat** and pick your ROM when
+asked. It downloads the same tools into a `toolchain` folder next to it (after asking),
+builds the game into `build/cmake/BeyondOasis.exe` and puts a **Beyond Oasis** shortcut on
+your desktop. To update, unzip the new release over the old folder and run it again.
+
+To build it fully by hand instead, see [Usage](#usage).
+
+## Status
+
+| Part | State |
+|---|---|
+| ROM verification (`tools/setup.mjs`) | done |
+| 68000 decoder, code tracer, disassembly listing (`tools/disasm.mjs`) | done: ~128 KB of code in 11,075 blocks, with the code seen running in play (`config/coverage.txt`) |
+| Runtime: memory map, VDP with widescreen renderer, pads, SRAM, settings | done |
+| Z80 + YM2612 + PSG sound | done |
+| 68000 → C recompiler (`tools/recomp.mjs`, built automatically by CMake) | done: 99.98% of 68000 time runs as native C |
+| Widescreen game patches (`runtime/src/widescreen.c`, `config/patches.json`) | done: gameplay at 16:9, other screens pillarboxed |
+| Save states and rewind (`runtime/src/state.c`, `rewind.c`) | done |
+| Launcher (`runtime/src/launcher.c`, `foil.c`, `launcher_scene.c`) | done: settings, ROM picker, foil steelbook, soundtrack player |
+| In-game menu (`runtime/src/menu.c`) | done: save/load slots with thumbnails, options, reset, quit |
+| Internal resolution 2-4x (`runtime/src/hd.c`) | done: per-layer Scale2x/Scale3x |
+| Smooth motion, 60-144 Hz+ (`runtime/src/hd.c`, `motion.c`) | done: moves every sprite by its object's movement between the game's 30 Hz ticks |
+| Display filters (`runtime/src/filter.c`) | done: scanlines, CRT, LCD |
+| Slowdown fix (`runtime/src/machine.c`) | done: 68000 at 150-300% |
+| Cheats (`runtime/src/cheats.c`) | done: infinite health and spirit, unbreakable weapons, attack power, move speed, RAM codes |
+
+## Testing
+
+The native build must behave exactly like the interpreter. Two checks:
+
+```
+BeyondOasis.exe --headless 6000 --verify <rom>        # every block vs. the interpreter: registers, flags, RAM, VDP, cycles
+BeyondOasis.exe --headless 6000 --hash-log a.log <rom>
+BeyondOasis.exe --headless 6000 --hash-log b.log --interpret <rom>
+                                                      # a.log and b.log must be identical
+```
+
+Run both checks with `--widescreen 0`: the widescreen patches change the game on purpose.
+
+Headless runs start from blank save RAM and never write `save.srm`, so tests play the same
+whatever you have saved, and never touch your save.
+With widescreen off, every patch falls back to the original code, so the results must match exactly.
+
+Other headless options:
+
+* `--press "FRAME:BUTTONS[:FRAMES],..."`: scripted input (U D L R A B C S), e.g. `600:S,1500:R:300`
+* `--shot F.png` / `--shots EVERY DIR`: screenshots (PNG or BMP)
+* `--widescreen 0|1`: override the setting for this run
+* `--watch ADDR,...`: print RAM bytes (e.g. `173D` for $FF173D) whenever they change
+* `--trace-vram LO HI`: log CPU writes and DMAs into a VRAM range, with the 68000 PC
+* `--dump F`: save RAM, VRAM, CRAM, VSRAM and VDP registers
+* `--hide-layers MASK`: hide plane A (1), plane B (2) or sprites (4)
+* `--state-check A B`: snapshot before frame A, run to B, reload and replay; both runs must end identical
+* `--rewind-check K`: record every frame, rewind K frames; must equal the snapshot taken then
+* `--launcher-shot F.png WIDTH TAB TIME`: render the launcher to a PNG with tab TAB (0-5: display, effects, game, music, cheats, speed) open, TIME seconds into its animations
+* `--no-launcher`: start the game directly this time
+* `--launcher-music-check SECONDS`: run the soundtrack player without an audio device; prints the title's song, each song change and the level every 30 seconds
+* `--ost-check SECONDS`: play every song for SECONDS and print its level per second (in tenths of its loudest second), then the menu sound effects' levels
+* `--menu-shot F.png W H`: open the in-game menu over the last frame and render it at W x H
+* `--controls-shot`: with `--menu-shot`, render the Controls page over the menu
+* `--input-check FILE`: rebind a few keys and buttons (including clashes), save them to FILE, load them back and print every binding
+* `--save-to N`, `--slot N`, `--states-base PREFIX`: save a slot at the end, pick the menu's slot,
+  and keep test slots in `PREFIXstates/` instead of the real ones
+* `--hd-shot F.png SCALE`: save the last frame at internal resolution SCALE (2-4), with the time it took
+* `--sprite-check EVERY DIR SCALE`: every EVERY frames, compare the frame drawn layer by layer with the same frame drawn sprite by sprite (as smooth motion draws it); prints how many differ by more than 0.5% and saves the worst pair
+* `--smooth-check DIR SCALE`: smooth motion over the last 8 frames at 120 Hz; prints how far each picture is between ticks and how many sprites follow objects, and saves the pictures
+* `--motion-check`: from frame 300 on, check that every frame's sprites are found in a tick the game built; prints how many sprites follow an object and the largest move
+* `--filter N`: use display filter N (0 off, 1 scanlines, 2 CRT, 3 LCD)
+* `--sharpen N`: sharpening 0-3 for this run (shows in `--filter-shot`)
+* `--lighting N` (0-2), `--dynlight N` (0-2), `--hdr N` (0-2), `--tone N` (0 original, 1 warm, 2 cool, 3 vivid), `--color-blind N` (0 off, 1 red-blind, 2 green-blind, 3 blue-blind), `--elements 0|1`, `--water 0|1`, `--footsteps 0|1`, `--texture-pack NAME`, `--dump-tiles 0|1`, `--scaler 0|1|2` (edge, smooth, sharp), `--audio N` (0 original, 1 clean, 2 rich): the effects for this run (`--filter-shot` also prints how long the finishing steps took)
+* `--bench N`: after each game frame, draw N pictures of it as the window does (layers put together at points between frames, then the finishing steps) and print the average times at the end: the game frame, putting the layers together (scaling layers, sprites, compositing) and the finishing steps. With `--shot F.png`, the last finished picture is saved. Use it with `--load N` and your own settings to see what a scene costs
+* `--fx-stress`: keep the screen full of particles (the most there can be, of every kind), to measure the worst case with `--bench` or `--window-test`
+* `--merged 0|1`, `--avx2 0|1`: the Merged finishing pass and the AVX2 loops for this run
+* `--gpu-api direct3d11|opengl`: the renderer and GPU effects to use (with `--gpu-shot`, `--window-test` or a normal start)
+* `--gpu-shot GPU.png CPU.png`: at the end, finish the last frame on the graphics card (a hidden window, Direct3D 11 unless `--gpu-api` says otherwise, read back) and on the CPU, save both and print the card's time
+* `--window-test SECONDS F.png`: run the real window loop, hidden (from `--load N`'s slot, with `settings.ini`), for SECONDS, then save the last picture as the window shows it (with the Performance stats panel when that is on) and print the renderer, whether the GPU effects ran and auto quality's resolution
+* `--outfit a,b,...`, `--outfit-anims 0,1,...`: Ali's outfit colours and animations for this run (as `outfit_colors` and `outfit_anims` in `settings.ini`)
+* `--outfit-check F.png`: at the end, save Ali's sprites 6x in his current colours and list the colour indices he uses
+* `--outfit-shot`: with `--menu-shot`, render the outfit page over the menu
+* `--menu-tab TAB ROW`: with `--menu-shot`, open tab TAB (0 game, 1 display, 2 effects, 3 cheats, 4 more, 5 speed) with row ROW selected (shows its preview card)
+* `--save-preview`: at the end, save the frame for the launcher's previews (`preview_frame.cache`)
+* `--png-check F.png`: read a PNG with the built-in reader and print its size and a checksum of its pixels
+* `--objects`: at the end, list every sprite on screen with the object that drew it (its list, slot, type and first words)
+* `--filter-shot F.png W H MODE`: draw the last frame at W x H with filter MODE on the GPU (hidden window) and save it
+* `--volume N`: volume 0-100 for this run
+* `--overclock PERCENT`: run the 68000 at this speed (also below 100, to simulate a heavy scene); headless runs print the spare time, game ticks and late ticks
+* `--load N`: load slot N (from the `--states-base` folder) before the first frame
+* `--cheat health|spirit|weapons|double|quadruple|onehit|fast|veryfast`: turn a built-in cheat on for this run (repeatable)
+* `--poke FFxxxx:VV[VV],...`: hold RAM bytes or words every frame (applied after the built-in cheats)
+* `--sound-log`: print each song or sound effect the game asks for (command, priority, the frame, and where in the game it came from)
+* `--wav F.wav`, `--pc-profile N` (hottest code over the last N frames: cycles per native block, instructions for interpreted code)
+
+## Launcher
+
+Before the game starts, a launcher presents the game like a collector's steelbook on a
+dark night: stars twinkle, soft lights drift out of focus and embers rise. The case is dark
+brushed steel with the title in polished gold and the Gold Armlet embossed into it, inside
+a raised double frame of holographic foil. The light drifts slowly and leans towards the
+mouse, like tilting a real case: the foil's colours shift with it, a glint sweeps across,
+and sparkles flash at their own angles. Everything fades in when the launcher opens.
+
+The settings sit on a tablet of the same steel, with a foil frame and six tabs, each with
+a line icon: DISPLAY, EFFECTS, GAME, MUSIC, CHEATS and SPEED. A holographic bar glides
+under the open tab; its rows slide in, the highlight glides between rows on springs,
+on/off options are switches whose knobs slide across, a changed value pulses, and the
+selected option's description shows under them. The keys for each action are shown as
+keycaps along the bottom, and a sheen runs over the Play button.
+
+The surfaces (`runtime/src/foil.c`) are height fields with a material per pixel (steel,
+holographic foil, gold, embossed art, engraved recesses), built once per window size and
+shaded every frame for the light on the renderer's worker threads.
+
+The artwork comes from your ROM: on first start the launcher plays the intro silently
+(about two seconds), captures the armlet scene and the title screen, and caches them in
+`launcher_art.cache` next to the executable (always in the console's own colours, whatever
+the colour tone). Everything is drawn in software every frame (about 6 ms at 720p, 13 ms at 1080p;
+larger windows are drawn at 1080p and scaled up).
+
+### Soundtrack player and sounds
+
+The launcher plays the game's soundtrack, made live by your ROM's own sound driver on the
+emulated Z80, YM2612 and PSG; no audio is stored anywhere (`runtime/src/ost.c`):
+
+* A background thread runs the ROM from a reset (with blank save RAM, like the art capture)
+  to the title screen without sound, noting the song the title asks for (song $04).
+* It then parks the game (the 68000 loops on a `bra.s *` in work RAM with interrupts
+  masked) and calls the sound driver itself, as the game does: `jsr $060000` once a frame
+  to play the music and `jsr $060004` with a command to start a song ($01nn) or a sound
+  effect. The calls return to a hand-written routine at an address in the cartridge header.
+* The ROM's song table at $0638D4 has 34 songs ($00-$21). Looping songs play for three
+  minutes and fade out; jingles end when they go quiet (measured without the FM DAC's DC
+  offset). The player plays them all in order, repeats one, or shuffles (`ost_mode`), and
+  remembers the last song (`ost_track`).
+* The MUSIC tab shows the song, its time, a level meter and previous / play-stop / next
+  buttons; the song playing also shows under the case on every tab.
+* Every choice in the launcher makes the game's own menu sound: the cursor sound ($0256)
+  when moving, the confirm sound ($0347) when changing or opening something, the cancel
+  sound ($03AA) when closing the controls page, and the error sound ($0253) when Play is
+  pressed without a ROM. They play even with the music off.
+
+Keys: arrows select and change, Enter activates, Q / E (or Page Up / Down, LB / RB) switch
+tabs, [ and ] change the song, M turns the music on and off, Esc quits; the mouse and a
+controller work too. Pressing Play fades the music out; the game then starts from a reset
+with your real save RAM. "Show launcher at startup" (SPEED tab) turns the launcher off;
+`show_launcher=1` in `settings.ini` brings it back.
+
+## Volume
+
+"Volume" (launcher and pause menu, `volume` in `settings.ini`) is a slider from 0 to 100%
+for the game's sound and the launcher music. Left/right move it in steps of 10%, and a
+click on the track sets it there (in steps of 5%).
+
+## In-game menu
+
+Esc pauses the game over a blurred, darkened copy of the last frame, with mist and embers
+drifting over it. The menu is a panel of the launcher's steel with "PAUSED" stamped into it
+in gold and a holographic frame, with six tabs like the launcher's: GAME (resume, save and
+load the nine slots, the map, stats, rewind, reset, quit), DISPLAY, EFFECTS, CHEATS, MORE
+(language, volume, audio, Controls, Ali's outfit) and SPEED. Q / E, Page Up / Down or
+LB / RB switch tabs; the rows slide in, the highlight glides, switches slide, and a changed
+value pulses. The menu opens and closes with a short dissolve to and from the sharp game
+picture.
+
+The card on the right, framed in holographic foil, follows the selected row: the save slot's thumbnail and when it was
+saved; for a picture option, a live before/after on the paused frame (`runtime/src/preview.c`):
+the renderer keeps every frame's layers, so the frame is drawn again without the option and
+with it (its value, or a typical one when it is off), joined by a dividing line that sweeps
+slowly across. Detail options (internal resolution, scaler, sharpening) show 1:1 pixels
+around the middle; scene-wide ones (lighting, dynamic light, HDR look, water, colour tone and colour-blind
+help) show the whole frame. Every other
+row explains what it changes. The launcher shows the same previews in a foil card over its case, on the
+frame the game saved last (`preview_frame.cache`, written when the menu opens and on quit).
+
+Every choice makes the game's own menu sound (cursor, confirm, cancel, error). The game
+cannot be asked to play them while it is paused without changing it, so they are rendered
+once from the ROM, the way the launcher's player does (`menu_sounds.cache`, about half a
+second on the first start), and played straight into the audio queue.
+
+All the enhancements are off by default (on a fresh install also widescreen, internal
+resolution, smooth motion and the sprite flicker fix), so the game looks and sounds as it
+did on the console until you turn something on.
+
+## Internal resolution
+
+"Internal resolution" (launcher and pause menu, `internal_scale` in `settings.ini`,
+default Native) redraws the game at 2x, 3x, 4x or 6x of its 320x224 picture (6x, 2544x1344,
+is for 1440p and 4K screens: about 10 ms a picture with Edge, 15 with Smooth, on a fast CPU). The VDP keeps each
+line's three layers (plane B, plane A with the window, sprites) with their colours and
+priorities. `hd.c` scales each layer on its own with Scale2x or Scale3x (4x is 2x twice),
+then composites them at that size with the VDP's own rules, priorities and
+shadow/highlight included. 6x is 3x and then 2x.
+
+These scalers only copy whole source pixels, so outlines and diagonals get smoothed while
+colours stay exact and layers never bleed into each other. Mid-frame palette changes and
+line scrolling still work, because every line was captured with its own colours. The art
+gains no new detail: it is the original art, drawn smoother at the window's size.
+
+At 3x a frame takes about 4 ms (6-8 ms at 4x with widescreen) on one core. "Native" turns
+it off and shows the original pixels. The native picture is unchanged, as are save-state
+thumbnails and screenshots.
+
+The last step to the window is "sharp bilinear" (`filter.c`): the picture is enlarged by
+a whole number with hard pixel edges to just above the window's size, and only that last
+small step is smoothed. A plain smooth stretch from 1272x672 to 1920x1080 softens every
+edge; this keeps about 20% more edge contrast. On a 1080p or larger screen, 4x is the
+sharpest choice, since it needs the smallest final step.
+
+## Smooth motion
+
+The game moves its camera and characters once per tick, every other frame: its logic
+runs at 30 Hz, in 2-pixel steps. "Smooth motion" (on by default, `smooth_motion` in
+`settings.ini`) draws the moments between two ticks from the game's own data instead of
+guessing from the picture:
+
+* While the game builds its sprite list (`runtime/src/motion.c`), the runtime notes for
+  every sprite which object drew it and where the game placed that object on screen.
+  Objects draw through three routines that first work out the object's screen position
+  ($AB4A, $AECC, $B0C4) and small effects through one ($A98E); the V blank handler sends
+  the finished list to the VDP ($1FBE), which ends a tick. The HUD, menus and text are
+  drawn other ways, belong to no object and never move between ticks.
+* The VDP also records each line's scroll values and every sprite: its position and all
+  of its pixels, including those hidden behind other sprites. The sprites shown are found
+  in the tick they came from by their entries in the sprite list.
+* Each picture is drawn a fraction `t` of the way from the previous tick to the latest:
+  plane A and B are shifted back by `(1 - t)` of their scroll change, and every sprite by
+  `(1 - t)` of its own object's movement. All the pieces of a character belong to the same
+  object, so they always move together, through animation changes too, and a character
+  can never disappear, double or come apart. An object that is new, whose slot now holds
+  a different kind of object, or that moved more than 48 pixels in one tick (a warp) is
+  drawn where it is.
+* Sprites are stacked front to back by their position in the sprite list, exactly as
+  the hardware does (`--sprite-check` compares this per-sprite drawing with the layer
+  drawing; they match to within 0.07% of pixels, at overlapping edges). Every picture is
+  drawn this way, also when nothing moves, so overlaps never switch between two ways of
+  drawing.
+* The main loop runs at the display's refresh with vsync: every refresh runs a game frame
+  if one is due (60 a second on any display) and draws the moment it is now. So 30 Hz
+  steps become 60 Hz motion on a 60 Hz display and 144 Hz motion on a 144 Hz one.
+* Scene cuts (scroll jumps over 24 pixels), column scrolling and sprite masking are
+  drawn as they are, without gliding.
+
+Motion is shown one tick (about 33 ms) late. Smooth motion works at any internal
+resolution; at Native it moves whole pixels. The game's own logic stays at 30 Hz: running
+it every frame would make the whole game run twice as fast, and halving every speed,
+timer and animation in the game to make up for it is a far bigger change.
+
+A picture takes 1.5-3 ms at 4x (16:9), split across cores by a pool of worker threads
+started once. Measured live on a 144 Hz display: 144 pictures a second, 90% of them
+6.7-7.2 ms apart (6.94 is perfect), the slowest 10.4 ms.
+
+## Display filters
+
+"Filter" (launcher and pause menu, `filter=off|scanlines|crt|lcd` in `settings.ini`)
+draws the picture with a screen look, on the GPU through SDL's renderer:
+
+* **Scanlines**: a dark gap between the game's lines, lined up with its 224 lines at
+  any window size (they fade out when a line is under three screen pixels tall).
+* **CRT**: scanlines, red/green/blue aperture-grille stripes, a soft glow, a vignette
+  and a gently curved picture.
+* **LCD**: a thin grid between the game's pixels, like a handheld screen.
+
+The scanlines, stripes, grid and vignette are one overlay texture, built once per
+window size and multiplied over the picture. The glow is the picture drawn at 1/8 size
+and added back stretched, which blurs it. The curve draws the picture and the overlay
+as a bent 40x30 triangle mesh (`SDL_RenderGeometry`). Filters work with every internal
+resolution and with smooth motion; screenshots and save thumbnails stay unfiltered.
+
+## Speed
+
+The window draws through SDL's Direct3D 11 renderer, which presents with a flip-model
+swap chain. SDL's default on Windows, Direct3D 9, could wait most of a refresh at each
+present: at 6x with every effect on, the same picture work ran at 30 to 70 pictures a
+second there and runs at about 90 with Direct3D 11. Without Direct3D 11, SDL's default is
+used.
+
+The SPEED tab (pause menu and launcher; `settings.ini` keys in brackets) holds what makes
+pictures cheaper to draw. Each one is a setting of its own.
+
+* **Performance stats** (`perf_stats`): a panel in the top-left corner, made twice a
+  second: pictures a second against the display's refresh rate, the internal resolution
+  (and auto quality's step), and each step's time a picture: putting the layers together,
+  the effects (on the CPU, with AVX2 or not, or the graphics card) and the upload to the
+  card, then the game's own frame (and rewind's share), drawing and waiting for the
+  display. It is drawn after the display filter, so it is not sharpened or graded.
+* **Auto quality** (`auto_quality`): when the pictures fall behind the display (the time
+  between them over 1.15 refreshes while their work fills three quarters of one) for about
+  three quarters of a second, the internal resolution drops a step (6x, 4x, 3x, 2x,
+  native); when the next step up would still leave a third of a refresh free (its work
+  estimated from the pixels it has) for three seconds, it goes back up, never past
+  Internal resolution. At 144 Hz with every effect on, 6x on a 24-thread CPU runs at about
+  90 pictures a second on the CPU and auto quality settles at 3x, around 140; with GPU
+  effects it holds 4x at 140.
+* **GPU effects** (`gpu_effects`): lighting, the HDR look and sharpening run on the
+  graphics card instead of the CPU, in two shader passes: the first grades and lights each
+  pixel into a texture in between, the second sharpens from there into a texture the
+  display filters then draw. The picture is uploaded as it is put together, and the glow
+  for the game frame (made on the CPU, a few thousand cells) goes up as a small 16-bit
+  texture. It uses SDL's Direct3D 11 renderer (`runtime/src/gpu_d3d11.c`, the shaders
+  compiled at start with Windows' `d3dcompiler_47.dll`), or OpenGL 2.0 where that is
+  missing (`runtime/src/gpu.c`); either is picked when the window opens, so turning the
+  option on or off takes effect at the next start ("On (from the next start)"), and
+  without either the CPU does the effects. The card's result matches the CPU's within
+  1/255 on 96% of pixels and within 7/255 on the rest. Particles, damage numbers and the
+  timer are drawn into the picture before it goes up. The Performance stats panel shows
+  the card's own time for the passes (from timestamp queries, read a few pictures later).
+  At 6x with every effect on, the card takes well under a millisecond, and with auto
+  quality a 144 Hz display holds 4x instead of 3x.
+* **Merged finishing pass** (`merged_pass`, off by default): on the CPU, each band of rows
+  is lit and graded into a buffer of its own (with a row above and below) and sharpened
+  from there, one pass over the picture instead of two. It saves a trip through memory but
+  works the extra rows: on a fast-memory PC it is about 0.4 ms slower, so try it where
+  memory is slow. Particles, damage numbers and the timer are then not sharpened.
+* **AVX2 pixel loops** (`avx2`): sharpening and the lighting/HDR pass work on eight pixels at
+  a time with AVX2 instructions, on CPUs that have them; the same arithmetic in the same
+  order, so the same picture to the bit.
+* **Slowdown fix**: as below.
+
+## Slowdown fix
+
+The game runs its logic every other frame (30 Hz). Each tick runs the game logic, waits
+for the first V blank (`$8B72`), draws, and waits for the tick countdown at `$FF1654`
+to run out (`$8ACA`). When a busy scene needs more than two frames of 68000 time, the
+countdown has already run out at the end of the tick and the game slows down.
+
+"Slowdown fix" (Off, 150%, 200%, 300% CPU; `overclock` in `settings.ini`) gives the
+68000 that many more cycles per scanline. The Z80, the sound chips, the video timing and
+the in-line position the VDP reports keep their real timing, so music and the frame rate
+are unchanged; the game just finishes each tick sooner and waits longer.
+
+Headless runs report it (`--overclock`): in the village, normal speed leaves 52% of
+the time spare, 200% leaves 76%. Run at 40% to imitate a scene too heavy for the real
+hardware and 230 of 300 ticks happen, all late: that is the slowdown the fix removes.
+At 100% the machine is unchanged (`--verify` and native/interpreter logs match).
+
+Moments that were CPU-bound, like area loading, also get shorter. Save states work at
+any speed, but replays are only identical at the speed they were recorded at.
+
+## Scaler, lighting and effects
+
+"Scaler" (Edge, Smooth, Sharp; `scaler=edge|smooth|sharp` in `settings.ini`) picks how the
+layers are scaled for the internal resolution. Sharp keeps every pixel a plain square,
+exactly as drawn. Edge and Smooth round edges, but leave dither (checkerboards and
+one-pixel stripes the art shades with) as blocks, so it stays crisp instead of smearing
+into blobs: a pixel that differs from both its neighbours on a line, which match, with the
+pattern repeating two pixels on, is dither. Edge is Scale2x / Scale3x. Smooth uses Hyllian's xBR
+rules: it looks at a 5x5 neighbourhood to tell along which diagonal an edge runs and
+rounds each corner on the right side of it, so curves and shallow slopes come out cleaner.
+The usual xBR blends colours at edges; this one takes a whole neighbouring source pixel
+instead, so every output pixel is still a real layer pixel and the layers, priorities and
+transparency composite exactly as before. Corners whose two candidate neighbours equal the
+pixel itself are skipped, and the layers are split into bands over all cores: a 4x frame
+takes about 4 ms, like Edge.
+
+"Lighting" (Off, Soft, Bright; `lighting`) makes light glow: near-white and vivid, bright
+pixels (fire, magic, gems, the HUD's gold) are gathered into a picture an eighth the size,
+blurred at two sizes and laid over the picture with a screen blend. Sunlit ground is
+bright but neither, so daylight scenes do not wash out. The glow is made once per game
+frame, not for every in-between picture.
+
+"Dynamic light" (Off, Soft, Strong; `dynamic_light`) makes the spirits, their magic and
+fire light up what is around them (`runtime/src/light.c`). Once per game frame, the light
+sources are found in the captured layers: the bright, vivid pixels of the sprites Spirit
+effects gives particles to (so Ali, people, enemies, chests and the HUD give off none),
+and fire-coloured scenery (red brightest, then green, little blue, so red roofs and sand do
+not). Their light is gathered into cells of 4x4 game pixels and spread at two sizes, a tight
+pool and a wide one, then saturated softly so a crowd of lights cannot burn the picture
+out. Every picture is multiplied by it, so lit ground keeps its own texture, warmed or
+tinted by the light, rather than being covered by a glow. Dark places (from the scenery's
+mean brightness: interiors, caves, dungeons) also dim by up to a quarter (Soft) or nearly
+two fifths (Strong) so the light shows; daylight scenes are only ever lit. The HUD and the
+lights themselves are never dimmed. It costs about 1 ms a game frame for the light, and
+0.4 ms a picture at 4x to apply, and runs before the other effects, so it works with the
+CPU's and the GPU's.
+
+"HDR look" (Off, On, Strong; `hdr_look`) grades the picture the way an HDR grade does on an
+ordinary screen: an S curve presses the shadows down and lifts the highlights (black and
+white stay where they are), and vibrance makes muted colours richer while leaving vivid
+ones alone, so fire, magic and gems stand out.
+
+"Colour tone" (Original, Warm, Cool, Vivid; `color_tone`) and "Colour-blind help" (Off,
+red-blind, green-blind, blue-blind; `color_blind=off|protanopia|deuteranopia|tritanopia`)
+change the console's own colours. The VDP has 512 colours in each of its normal, shadow and
+highlight modes, so both are worked out once for each of them (in linear light) into the
+table every pixel's colour comes from (`runtime/src/vdp.c`): every picture, at every
+internal resolution, with the CPU or the GPU effects, and every effect made from it follows
+for free. Warm and Cool shift the white balance towards sunlit gold or moonlit blue; Vivid
+adds saturation. Colour-blind help is daltonization: each colour as that eye sees it
+(Machado, Oliveira and Fernandes' simulation, full strength) is taken from the colour, and
+two thirds of what that eye misses is moved into channels it can tell apart, so reds and
+greens (or blues and yellows) that would look the same come apart while the scene keeps
+its colours. Water, footsteps and texture-pack dumps still look at the original colours,
+and texture-pack images are drawn as they are.
+
+"Spirit effects" (`elements`): after each game frame, the bright, vivid pixels of the
+sprites of the spirits and their magic give off particles by colour: fire colours embers
+that rise and fade, light blue drops that splash up and fall, violet wisps that drift,
+bright green leaves that flutter down. Which object drew each sprite comes from motion.c,
+so Ali, the people and creatures of Oasis (object types $0032 and $003C in the character
+list), dropped items and the HUD give none, whatever their colours. A dropped item is an
+object of the character list drawn as a single sprite of at most 16x16 that has stayed in
+place for a third of a second. Particles are placed
+in the world from the game's camera; a camera jump (a new scene) or loading a state clears
+them (`runtime/src/fx.c`). The particles are drawn in bands of rows on all cores: a screen full of them (600) costs about 0.2 ms at 6x.
+
+"Water" (`water`): water is found by colour at the game's resolution (the plane pixel on
+top clearly blue, in runs at least five pixels wide, so blue details on land are left
+out). Under no sprite, it rolls with soft horizontal swells, sparkles at points fixed in
+the world (from the plane's scroll), glints that drift along the crests of the swells, and
+foams where it meets the shore or anything standing in it: a white edge whose width laps in
+and out at its own pace along the shore, breaking into froth at its rim (the distance to
+the nearest edge comes from a chamfer distance pass over the water). It reflects the
+sprites above it: mirrored at the water's edge, or at a character's feet, rippling, fading
+with the distance and tinted by the water. It is drawn while the layers are put together;
+the opening beach is the test scene, and a 4x frame takes about the same time with it.
+
+"Footsteps" (`footsteps`): while Ali walks (his sprites' box, from the renderer, moving in
+the world), every few frames the ground under his feet decides what he kicks up: water
+splashes (a widening ring and drops), grass gives bits of green that hop away, anything
+else a puff of dust in the ground's own colour.
+
+These, and sharpening, run on the picture before it goes to the GPU (`hd_post`), so the
+display filters still apply on top. None of them change the game. The rows are split into
+small bands that the threads take as they come free (on CPUs with fast and slow cores,
+equal shares wait for the slow ones).
+
+## Audio
+
+"Audio" (Original, Clean, Rich; `audio` in `settings.ini`, Original by default) changes only
+the sound that comes out (`runtime/src/sound.cpp`), never the machine's state, so save
+states and replays are the same in every mode:
+
+* Clean: the YM2612's 53 kHz output is resampled to the device rate with a 16-tap
+  windowed-sinc filter instead of straight lines, so nothing above the output's Nyquist
+  frequency folds back as noise; each PSG square wave is averaged over every sample
+  instead of read at one instant, which keeps its high notes from aliasing; a DC blocker
+  removes the offset the FM DAC holds (about 2500 of 32767), and the mix keeps headroom
+  and ends in a soft limiter instead of clipping (the original clips about 1400 times a
+  second in the village at full volume).
+* Rich: Clean, with the stereo widened a little and a light room reverb (four comb and
+  two all-pass filters per side, after Freeverb) mixed in quietly.
+
+**Waterfalls no longer silence other sounds.** Near a waterfall, the game asks for its
+rushing sound ($039A) every 8 frames at priority $90, higher than most sound effects, and
+the sound driver drops a sound of lower priority while a higher one plays. On the console,
+Ali's running footsteps ($40) and many other effects were never heard anywhere near a
+waterfall. The waterfall now goes out below every sound effect (`driver_cmd_hook` in
+`runtime/src/main.c`), so anything else plays over it and the waterfall comes back within
+8 frames. This applies in every Audio mode.
+
+## HD texture packs
+
+"Texture pack" (DISPLAY in the launcher, MORE in the pause menu; `texture_pack` in
+`settings.ini`) draws high-resolution images in place of the game's 8x8 tiles, from a
+folder in `texture_packs/` next to the executable (`runtime/src/texpack.c`):
+
+* A tile as the game shows it is its 32 bytes of pattern and the 16 colours of the palette
+  line it is drawn with; its key is a 64-bit FNV-1a hash of those, written as 16 hex digits.
+  A pack is a folder of `<key>.png` images, each square, a multiple of 8 pixels (8x8 to
+  128x128), with transparency.
+* "Dump tiles" (`dump_tiles`) writes every tile shown on screen once, as an 8x8 PNG named
+  by its key, to `texture_packs/dump/`: play through a part of the game, redraw or upscale
+  the images, and put them in a folder of their own.
+* While a pack is loaded the VDP keeps, for every pixel of each layer, its tile's
+  replacement, the tile's flips and the pixel's place in the tile. The replacement colours
+  are worked out beside the scaled layers (for the planes once per game frame, for each
+  sprite with its scaled copy, so they follow it in smooth motion), and while the layers
+  are put together a replacement can make its layer's pixel transparent or opaque; when
+  that layer is on top, the pixel takes the replacement's colour. Priorities, the window,
+  lighting and the other effects work as before.
+* PNGs are read by a built-in decoder (inflate with fixed and dynamic Huffman codes, all
+  five row filters; 8-bit grey, RGB, palette, grey with alpha and RGBA). Loading 23,000
+  images takes under a second; a 3x frame takes about 1 ms longer to compose.
+* Keys include the colours, so a tile during a screen fade (each step a different palette)
+  has a different key and shows the original art for those few frames. Dumping during
+  fades writes those variants too; they can be left out of a pack.
+
+## Sharpening
+
+"Sharpening" (Off, Light, Medium, Strong; `sharpen` in `settings.ini`) sharpens the
+picture before it goes to the GPU, at the internal resolution (or the native one), split
+across CPU cores (`hd_sharpen` in `runtime/src/hd.c`). It is contrast-adaptive, after
+AMD's CAS: each pixel is pushed away from its four neighbours, by less where the contrast
+is already high, so the soft edges of the scaled layers and of the final stretch to the
+window get crisper while hard pixel edges get no halos or ringing. On Strong, about one
+pixel in eight of a village frame at 3x changes.
+
+## Ali's outfit
+
+"Ali's outfit" (in the pause menu and on the launcher's GAME tab) recolours the player
+character's clothes, hair, skin and jewellery, and can animate them (`runtime/src/outfit.c`):
+
+* Every sprite in the game uses palette line 0, so changing a CRAM colour would recolour
+  the townspeople with him. Instead the renderer recolours only the sprites his object
+  drew: motion.c already records which object each sprite-table entry belongs to, and the
+  VDP marks his pixels whose colour index has an outfit colour (bit 7 of the sprite byte,
+  unused by the hardware) and takes that colour instead of CRAM's.
+* Each part is a ramp of colour indices, brightest first: trousers 15, 13; sash 2, 1 (his
+  sword's grip shares it); boots and headband 7, 6, 5; hair and the Gold Armlet with the
+  gold bands on his wrists and ankles 4, 3; skin 10, 9, 8; the jewel in his sword's guard
+  12. Parts that share colours are told apart by height, counted up from his feet (the
+  bottom of his sprites' box, which his sword does not move): the top 15 of his 48 rows
+  are his head (hair, headband), the rest his body and feet (armlet, boots). The VDP picks
+  each line's colours by its band. One colour is picked per part; each index gets it
+  scaled by how bright the game makes that index right now, so folds and shading stay and
+  the game's fades still darken him.
+* A part can also be animated, still in the Genesis's colours: Shimmer (a bright band
+  sweeping up him every two seconds), Pulse (breathing between full and half brightness),
+  Rainbow (hues running up him at the colour's brightness) or Flame (flickering reds and
+  yellows licking upwards). Only the picture changes.
+* The page shows him large in the colours being picked, next to how he looks now, and
+  changes nothing until Apply (Reset goes back to his own colours, Cancel leaves). Each
+  part steps through 32 named colours with left and right; Space (X or Y on a controller,
+  or a click by the swatch) steps its animation; Enter mixes your own from red, green and
+  blue in the Genesis's eight steps each. The launcher shows the picture of
+  him the game saved last time (`player_preview.cache` next to the executable).
+* `outfit`, `outfit_colors` (eight CRAM colours in hex, `-` for his own; the older list
+  of four still loads) and `outfit_anims` (0 still, 1 shimmer, 2 pulse, 3 rainbow, 4 flame)
+  in `settings.ini` hold the choice.
+
+## Cheats
+
+The CHEATS tab (pause menu and launcher, themed after the Gold Armlet) has each cheat on a
+row of its own; `cheat_health`, `cheat_spirit`, `cheat_weapons`, `cheat_attack` (0-3) and
+`cheat_speed` (0-2) in `settings.ini` hold them.
+
+* **Infinite health.** The player's hit handler subtracts no damage (a recompiler patch
+  at `$005884`, `playerDamage` in `config/patches.json`), and the health is held full.
+* **Infinite spirit.** Spirit power is held full once Ali has a spirit.
+* **Attack power: Double, Quadruple, One-hit kill.** A hit stores its damage in the
+  target's object (+$86) at four places (`$00BEE8` and `$00BFE6` in the shared hit test,
+  `$01DABA` and `$01EA30`; `hitDamage` in `config/patches.json`). For any target but Ali
+  that damage is made 2x or 4x, or the target's HP plus its defence (`hit_damage()` in
+  `recomp_rt.h`). Each enemy's own handler then takes it off as always, so every kind of
+  enemy is covered, and they die as they always do.
+* **Move speed: Fast (1.5x), Very fast (2x).** The move-with-collision routine loads an
+  object's movement for the tick (+$72 x, +$76 y, 16.16) at four places (`$009078`,
+  `$00970E`, `$009200`, `$0097EA`, `playerSpeed`); for Ali's object (`$FF19E8`) it is
+  scaled (`player_move()`). The map collision still runs on the scaled step, so walls
+  stop him as before. A scripted scene that walks Ali to a spot may overshoot; set it back
+  to Normal if one stalls.
+
+With every cheat off, the patched instructions do exactly what the original ones do.
+* **Unbreakable weapons.** Breakable weapons keep their uses (a weapon on its last use
+  gets two). Turning the cheat off leaves them with the count they had.
+
+Extra RAM codes go in `settings.ini` as `cheat_codes=FFxxxx:VV,FFxxxx:VVVV,...`: two hex
+digits write a byte, four write a word, every frame. Useful addresses:
+
+| Address | Meaning |
+|---|---|
+| `$FF1A70` / `$FF1A72` | max / current health (word) |
+| `$FF1A74` / `$FF1A76` | max / current spirit (word; max is 0 before the first spirit) |
+| `$FF0D80` + 2k | weapon slot k (0-7): id byte, uses byte (`$FF` = never breaks) |
+| `$FF0D90` + 2k | item slot k (0-15): id byte (0 = empty), then a second byte |
+
+### Randomizer
+
+"Randomizer" (CHEATS) swaps what chests, pots, enemies and the items lying about give. A
+broken object loads its drop (+$8C, item << 8 | count) at `$00F564`, and a map script
+places an item on the ground at `$010050` (`randomDrop` in `config/patches.json`); there
+`random_drop()` (`cheats.c`) swaps a restorative ($1E-$2A: the HP, SP and HP+SP
+restoratives and the Elixir) for another, and on "Items + weapons" a weapon for another.
+The result is fixed by the seed, the area and the spot, so a chest keeps its prize; turning
+it on picks a new seed (`randomizer_seed` in `settings.ini`). Keys, HP Up, the spirit
+stones and calls, lasting upgrades, the one-time table at $043830, the Knife and the Bomb
+never change, so the game can always be finished. `--randomizer-check` prints every swap.
+
+## Save states and rewind
+
+A snapshot holds the whole machine between frames: both CPUs, all RAM, the VDP, I/O,
+the sound chips and the scheduler (about 157 KB). Save states write one to
+`states/slotN.state`; they load only into a build with the same state layout.
+
+Rewind records a snapshot every frame as the change from the previous one (about 1 KB
+per frame in play), up to `rewind_mb` in `settings.ini` (default 64). Holding the rewind
+key steps back one frame per frame, redrawing each with the input it was played with.
+
+## Languages
+
+Each country's cartridge has its own language: the translations were sold as separate
+cartridges, with their own code. Every one of them is recompiled the same way, and all the
+enhancements work in each.
+
+| Version | Language | Console |
+|---|---|---|
+| Beyond Oasis (USA) | English | NTSC, 60 Hz |
+| The Story of Thor (Europe) | English | PAL, 50 Hz |
+| La Légende de Thor (France) | French | PAL, 50 Hz |
+| The Story of Thor (Germany) | German | PAL, 50 Hz |
+| The Story of Thor (Spain) | Spanish (dialogue; its menus are in English, as on the cartridge) | PAL, 50 Hz |
+| The Story of Thor: Hikari o Tsugumono (Japan) | Japanese | NTSC, 60 Hz |
+
+* **Picking one.** Give Setup a ROM of each version you want (or pick one in the launcher's
+  **Game** tab, **ROM** row). **Language** in the launcher's Game tab and in the pause
+  menu's **More** tab then switches between them. In the pause menu the switch starts that
+  version from its title screen: unsaved progress is lost.
+* **Its own saves.** Each version keeps its own save RAM, save states and caches
+  (`save-fr.srm`, `states-fr\`, ...; the USA version's keep their old names), so a save of
+  one never loads into another.
+* **PAL versions run as on a European console:** 50 frames a second, a 240-line picture
+  (widescreen keeps two more rows of the map valid for it) and the slightly slower PAL sound
+  clocks. Smooth motion makes 50 Hz look fluid on any display.
+* **How it works.** The translations moved the game's code, so the places the enhancements
+  hook into (widescreen, smooth motion, the cheats, the speed statistics, the sound driver)
+  are at other addresses in each version. `tools/map-versions.mjs` finds each one by the
+  USA code around it and checks the instruction there; the result is
+  `config/version-addresses.json` (addresses only), so building a version needs only its
+  own ROM. The launcher's case letters each version's title (its own title screen is a
+  different picture), and the title screen is recognised by the game's own state, the same
+  in every version.
+
+## Widescreen
+
+The game draws a 320-pixel screen; widescreen adds up to 80 pixels on each side
+(16:9 adds 52). To fill them with real content during gameplay:
+
+* **Map streaming.** The game keeps 41 columns of each 64-column scroll plane valid.
+  `widescreen.c` replaces the column/row streamers, the area draw, the plane clear and the
+  tile-change redraw with C versions that keep up to 11 more columns on each side.
+* **Sprite culling.** Ten compares drop sprite pieces outside x = -32..320. The recompiler
+  widens them through runtime variables (`config/patches.json`).
+* **Camera limits.** The camera stops the extra width away from each map edge, so the
+  wider view never shows past the map.
+* **Other screens.** Logos, the title, menus and story scenes are made for 320 pixels and
+  are pillarboxed in black. The extra width is shown while a map layer is loaded.
+
+## How it fits together
+
+1. `tools/disasm.mjs` traces code from the vector table, jump tables and code
+   pointers, and writes `build/disasm/beyond_oasis.asm` and `build/analysis.json`.
+2. The runtime runs the game. Code that has been recompiled (or rewritten by
+   hand) runs as native C; anything else falls back to the Musashi interpreter.
+   That keeps the game fully playable while more of it becomes readable C.
+3. While you play, the runtime records which code ran (`coverage.bin`); the
+   tracer uses it to find code it could not discover statically.
+
+## Usage
+
+You need:
+
+* Windows 10 or 11 (the launcher and menus draw their text with Windows' fonts)
+* [Git](https://git-scm.com/), [Node.js](https://nodejs.org/) 18 or newer,
+  [CMake](https://cmake.org/) 3.20 or newer, [Ninja](https://ninja-build.org/) and
+  [Clang](https://releases.llvm.org/)
+* Your own cartridge dump of one or more versions (SHA-1s in `config/versions.json`). It is
+  not included and never will be.
+
+Clone with the submodules (the third-party code below), or the build cannot find them:
+
+```
+git clone --recursive <this repository's URL>
+```
+
+(Already cloned without them? Run `git submodule update --init --recursive`.)
+
+Then, in the repository's folder:
+
+```
+node tools/setup.mjs "<path to a ROM>" ["<another version's ROM>" ...]
+node tools/disasm.mjs
+cmake -S . -B build/cmake -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build build/cmake
+build/cmake/BeyondOasis.exe "<path to ROM>"
+```
+
+`setup.mjs` checks each ROM, finds which version it is and remembers where it is
+(`local.json`, never committed); the build recompiles every version set up into
+`generated/<id>/` (also never committed), all in one game. `tools/map-versions.mjs` (needs
+the USA ROM) finds the runtime's hook addresses in the other versions again after one is
+added to `config/addresses.json` or `config/patches.json`.
+
+The tracer finds most of the code on its own; the rest is code it has seen running.
+`config/coverage.txt` lists those addresses (addresses only, nothing from the ROM), so a
+fresh build is as complete as a played one. After playing, `node tools/save-coverage.mjs`
+adds what that play reached to it (`node tools/save-coverage.mjs fr` for another version:
+its list is `config/coverage-fr.txt`).
+
+Default controls (all remappable, see Controls below):
+
+| Action | Keyboard | Controller (Xbox layout) |
+|---|---|---|
+| Move | Arrows | D-pad (the left stick always works too) |
+| A / B / C | Z / X / C | X / A / B |
+| Start | Enter | Start |
+| Rewind (hold) | Backspace | LB |
+| Pause menu | Esc | Back (Guide and Esc always work too) |
+
+Fixed keys: F2 save state, F4 load, F6/F7 previous/next slot (1-9, files in `states/`),
+F5 widescreen on/off, F11 fullscreen. Settings live in `settings.ini` next to the executable.
+
+## Controls
+
+"Controls" in the pause menu and in the launcher opens a page with every action's key and
+controller button. Pick a row, press Enter (or A, or click) and then the new key or button:
+a key binds the keyboard column, a button the controller column. A key or button another
+action had is swapped onto that action's old one, so no two actions ever share. Esc
+cancels, and "Reset to defaults" puts everything back. The menus keep their own fixed
+keys (arrows / D-pad, Enter / A, Esc / B), and Esc and the Guide button always open the
+pause menu, so a binding can never lock you out. Bindings are saved in `settings.ini` as
+`key_<action>` and `pad_<action>` (SDL key and button names). Any controller SDL knows
+works: Xbox, PlayStation, Switch Pro and most others. Every connected controller is open
+(`runtime/src/pads.c`, shared by the launcher and the game), and the one pressed last is
+used; one that disconnects (a wireless controller sleeping, Bluetooth dropping) is picked
+up again when it comes back.
+
+Holding the fast-forward key (Tab, or RB) runs two, three or four game frames per frame
+("Fast-forward" in the pause menu's GAME tab); the last one's sound is heard.
+
+## Combat info, rumble, stats and the map
+
+`runtime/src/combat.c` compares the health of the game's objects after every frame: the
+enemies (the main object list from slot 4, +$8A; villagers and creatures are left out),
+Ali ($FF1A72) and the spirit's slot ($FF1AA4). From that, whatever caused the hit:
+
+* **Combat info** (EFFECTS): the damage rises from the enemy as a pixel-font number, gold
+  for a one-hit kill; with health bars, a bar over the enemy shows what it has left (and a
+  pale part catching up) for a few seconds after each hit.
+* **Rumble** (the launcher's GAME tab, the pause menu's MORE): a light buzz on a hit, harder on a kill and when Ali is hit, a soft
+  one on a summon.
+* **Stats** (GAME): this session's play time and kills, and over all sessions the play
+  time, enemies defeated, damage dealt and taken, biggest hit, hits taken and spirits
+  called, kept in `stats.ini`. **Play timer** (MORE) shows the session's time in the
+  corner of the picture.
+
+The **Map** (GAME, `runtime/src/automap.c`) fills in as you explore: every few frames the
+scenery under the camera (the planes, without sprites or the HUD) is copied at a quarter
+of its size into the current area's picture, with Ali's place blinking on it. Areas are
+told apart by the map number and tile sets at $FF16F6-$FF16FD and the map's size; the
+maps are kept in `automap.bin`.
+
+## Third-party code
+
+* [Musashi](https://github.com/kstenerud/Musashi) (MIT): 68000 interpreter fallback
+* [SDL2](https://github.com/libsdl-org/SDL) (zlib): window, input, audio
+* [z80](https://github.com/superzazu/z80) (MIT): Z80 sound CPU
+* [ymfm](https://github.com/aaronsgiles/ymfm) (BSD-3-Clause): YM2612 FM synthesis
+
+## License and legal
+
+The code in this repository (the runtime, tools and launcher) is under the MIT License:
+see [LICENSE](LICENSE). The third-party code above keeps its own licenses.
+
+This is an unofficial fan project, not affiliated with or endorsed by Sega. Beyond Oasis
+and Sega are trademarks of Sega Corporation. No part of the game (code, graphics, music
+or text) is included: you need your own copy, and everything made from it stays on your
+computer.
