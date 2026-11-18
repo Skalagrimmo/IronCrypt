@@ -1,7 +1,11 @@
 package com.example.game.engine
 
 import com.example.game.model.ActiveDialogue
+import com.example.game.model.AffinityEffectiveness
 import com.example.game.model.Direction
+import com.example.game.model.ElementalAffinity
+import com.example.game.model.FloatingTextFrameSnapshot
+import com.example.game.model.FloatingTextItem
 import com.example.game.model.GamePhase
 import com.example.game.model.HudUiState
 import com.example.game.model.ItemType
@@ -9,15 +13,20 @@ import com.example.game.model.QualityTier
 import com.example.game.model.RenderConfig
 import com.example.game.model.RpgItem
 import com.example.game.model.GameSaveSnapshot
+import com.example.game.model.MiniMapMarker
+import com.example.game.model.MiniMapMarkerKind
+import com.example.game.model.MiniMapState
 import com.example.game.model.SavedEnemyState
 import com.example.game.model.SavedItemStack
 import com.example.game.model.SavedPickupState
 import com.example.game.model.SavedPropState
+import com.example.game.model.SoundCue
 import com.example.game.model.SpriteId
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -115,6 +124,22 @@ class Particle {
     var b = 0.25f
 }
 
+class FloatingTextSlot {
+    var active = false
+    var id = 0L
+    var worldX = 0f
+    var worldY = 0f
+    var amountText = ""
+    var tagText = ""
+    var affinity = ElementalAffinity.PHYSICAL
+    var effectiveness = AffinityEffectiveness.NEUTRAL
+    var isCrit = false
+    var isPlayerHit = false
+    var age = 0f
+    var duration = 0.95f
+    var driftX = 0f
+}
+
 /**
  * Fixed-pool real-time RPG simulation. Zero allocations during update ticks so Cortex-A53
  * cores on Exynos 7870 avoid GC frame hitches.
@@ -127,6 +152,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         const val MAX_PROJECTILES = 24
         const val MAX_PICKUPS = 24
         const val MAX_PARTICLES = 64
+        const val MAX_FLOATING_TEXTS = 24
+        const val VISION_RADIUS_TILES = 5.5f
     }
 
     val enemies = Array(MAX_ENEMIES) { EnemyActor() }
@@ -134,6 +161,15 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
     val projectiles = Array(MAX_PROJECTILES) { Projectile() }
     val pickups = Array(MAX_PICKUPS) { Pickup() }
     val particles = Array(MAX_PARTICLES) { Particle() }
+    val floatingTexts = Array(MAX_FLOATING_TEXTS) { FloatingTextSlot() }
+    @Volatile var hasActiveFloatingTexts = false
+    private var nextFloatingTextId = 1L
+
+    private val soundCueBuffer = Array(16) { SoundCue.SWING }
+    private var soundCueHead = 0
+    private var soundCueTail = 0
+    private var soundCueCount = 0
+    @Volatile var hasPendingSoundCues = false
 
     // Lock-free touch inputs written by Compose UI thread, read on GL thread
     @Volatile var joyX = 0f
@@ -198,6 +234,14 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
     var activeParticlesCount = 0
     var globalTime = 0f
 
+    // Fog-of-war discovery state for the adaptive mini-map
+    private val discoveredTiles = BooleanArray(DungeonMap.WIDTH * DungeonMap.HEIGHT)
+    private var discoveredTileCount = 0
+    private var lastRevealTileX = -999
+    private var lastRevealTileY = -999
+    private var cachedMiniMapTerrain = map.encodeMiniMapTerrain()
+    private var cachedDiscoveredMask = ""
+
     private var rngState = 0x5A17C931
 
     init {
@@ -244,8 +288,17 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             projectiles.forEach { it.active = false }
             pickups.forEach { it.active = false }
             particles.forEach { it.active = false }
+            floatingTexts.forEach { it.active = false }
+            hasActiveFloatingTexts = false
+            clearSoundCues()
 
             populateDungeon()
+            discoveredTiles.fill(false)
+            discoveredTileCount = 0
+            lastRevealTileX = -999
+            lastRevealTileY = -999
+            cachedMiniMapTerrain = map.encodeMiniMapTerrain()
+            revealAroundPlayer(force = true)
         }
     }
 
@@ -340,6 +393,36 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
     fun playerDefTotal(): Int =
         (equippedShield?.defBonus ?: 0) + (equippedHelmet?.defBonus ?: 0) + (equippedCloak?.defBonus ?: 0)
     fun playerSpeedTotal(): Float = 4.35f + (equippedCloak?.spdBonus ?: 0f)
+    fun playerCritChance(): Float =
+        (0.14f + (equippedWeapon?.critBonus ?: 0f) + (equippedCloak?.critBonus ?: 0f)).coerceIn(0f, 0.75f)
+
+    fun resolveAttackAffinity(isCleave: Boolean): ElementalAffinity {
+        val weaponAffinity = equippedWeapon?.affinity ?: ElementalAffinity.PHYSICAL
+        return if (isCleave) {
+            if (weaponAffinity == ElementalAffinity.FIRE) ElementalAffinity.FIRE else ElementalAffinity.ARCANE
+        } else {
+            weaponAffinity
+        }
+    }
+
+    fun enemyAffinityEffectiveness(kind: EnemyKind, affinity: ElementalAffinity): Pair<AffinityEffectiveness, Float> {
+        return when (kind) {
+            EnemyKind.SKELETON, EnemyKind.GARGOYLE -> when (affinity) {
+                ElementalAffinity.FIRE -> AffinityEffectiveness.WEAKNESS to 1.35f
+                else -> AffinityEffectiveness.NEUTRAL to 1.0f
+            }
+            EnemyKind.AUTOMATON, EnemyKind.BOSS_MECH -> when (affinity) {
+                ElementalAffinity.ARCANE -> AffinityEffectiveness.WEAKNESS to 1.35f
+                ElementalAffinity.FIRE -> AffinityEffectiveness.RESISTANT to 0.85f
+                else -> AffinityEffectiveness.NEUTRAL to 1.0f
+            }
+            EnemyKind.BOSS_DEMON -> when (affinity) {
+                ElementalAffinity.ARCANE -> AffinityEffectiveness.WEAKNESS to 1.25f
+                ElementalAffinity.FIRE -> AffinityEffectiveness.RESISTANT to 0.80f
+                else -> AffinityEffectiveness.NEUTRAL to 1.0f
+            }
+        }
+    }
 
     fun update(dtRaw: Float, config: RenderConfig) {
         val dt = dtRaw.coerceIn(0.001f, 0.05f)
@@ -371,6 +454,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             updateProjectiles(dt, config)
             updatePickups(dt, config)
             updateParticles(dt)
+            updateFloatingTexts(dt)
         }
     }
 
@@ -416,6 +500,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                     }
                 }
                 spawnParticleBurst(playerX, playerY + 0.2f, 6, 0.7f, 0.75f, 0.85f, config)
+                queueSoundCue(SoundCue.DASH)
             }
         }
 
@@ -447,7 +532,15 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             if (attackCooldown <= 0f) {
                 attackCooldown = 0.30f
                 attackAnimTimer = 0.22f
-                performMeleeStrike(radius = 1.65f, coneCos = -0.15f, damage = playerAtkTotal(), knockback = 4.2f, config = config)
+                queueSoundCue(SoundCue.SWING)
+                performMeleeStrike(
+                    radius = 1.65f,
+                    coneCos = -0.15f,
+                    damage = playerAtkTotal(),
+                    knockback = 4.2f,
+                    isCleave = false,
+                    config = config
+                )
             }
         }
 
@@ -458,7 +551,15 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 playerStamina -= 25f
                 cleaveCooldown = 2.4f
                 attackAnimTimer = 0.28f
-                performMeleeStrike(radius = 2.25f, coneCos = -1.1f, damage = (playerAtkTotal() * 1.8f).toInt(), knockback = 7.0f, config = config)
+                queueSoundCue(SoundCue.CLEAVE)
+                performMeleeStrike(
+                    radius = 2.25f,
+                    coneCos = -1.1f,
+                    damage = (playerAtkTotal() * 1.8f).toInt(),
+                    knockback = 7.0f,
+                    isCleave = true,
+                    config = config
+                )
                 spawnParticleBurst(playerX, playerY, 14, 0.95f, 0.65f, 0.2f, config)
                 if (config.enableScreenShake) {
                     screenShakeTimer = 0.16f
@@ -466,6 +567,9 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 }
             }
         }
+
+        // Reveal fog-of-war tiles when entering a new tile
+        revealAroundPlayer(force = false)
 
         // Proximity detection for Interact
         findNearestInteractable()
@@ -501,6 +605,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         coneCos: Float,
         damage: Int,
         knockback: Float,
+        isCleave: Boolean,
         config: RenderConfig
     ) {
         val fx = when (playerFacing) {
@@ -509,6 +614,9 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         val fy = when (playerFacing) {
             Direction.SOUTH -> 1f; Direction.NORTH -> -1f; else -> 0f
         }
+
+        val affinity = resolveAttackAffinity(isCleave)
+        val critChance = (playerCritChance() + if (isCleave) 0.20f else 0f).coerceIn(0f, 0.85f)
 
         // Check enemies
         for (e in enemies) {
@@ -519,7 +627,22 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             if (dist <= radius + e.kind.radius) {
                 val dot = if (dist > 0.001f) (dx * fx + dy * fy) / dist else 1f
                 if (dot >= coneCos) {
-                    damageEnemy(e, damage, dx, dy, dist, knockback, config)
+                    val isCrit = nextRand01() < critChance
+                    val (effectiveness, elemMult) = enemyAffinityEffectiveness(e.kind, affinity)
+                    val critMult = if (isCrit) 1.65f else 1.0f
+                    val finalDamage = (damage * elemMult * critMult).toInt().coerceAtLeast(1)
+                    damageEnemy(
+                        e = e,
+                        damage = finalDamage,
+                        affinity = affinity,
+                        effectiveness = effectiveness,
+                        isCrit = isCrit,
+                        dx = dx,
+                        dy = dy,
+                        dist = dist,
+                        knockback = knockback,
+                        config = config
+                    )
                 }
             }
         }
@@ -545,6 +668,9 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
     private fun damageEnemy(
         e: EnemyActor,
         damage: Int,
+        affinity: ElementalAffinity,
+        effectiveness: AffinityEffectiveness,
+        isCrit: Boolean,
         dx: Float,
         dy: Float,
         dist: Float,
@@ -560,7 +686,33 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             e.x += kx
             e.y += ky
         }
-        spawnParticleBurst(e.x, e.y, 7, 1f, 0.35f, 0.25f, config)
+        val tagParts = buildString {
+            if (isCrit) append("КРИТ")
+            if (affinity == ElementalAffinity.FIRE || affinity == ElementalAffinity.ARCANE) {
+                if (isNotEmpty()) append(" • ")
+                append(affinity.labelUk)
+            }
+            if (effectiveness != AffinityEffectiveness.NEUTRAL) {
+                if (isNotEmpty()) append(" ")
+                append(effectiveness.badgeUk)
+            }
+        }
+        spawnFloatingText(
+            worldX = e.x,
+            worldY = e.y - e.kind.scaleH * 0.56f,
+            amountText = if (isCrit) "$damage!" else "$damage",
+            tagText = tagParts,
+            affinity = affinity,
+            effectiveness = effectiveness,
+            isCrit = isCrit,
+            isPlayerHit = false
+        )
+        queueSoundCue(if (isCrit) SoundCue.CRIT else SoundCue.HIT)
+        when (affinity) {
+            ElementalAffinity.FIRE -> spawnParticleBurst(e.x, e.y, if (isCrit) 12 else 8, 1f, 0.58f, 0.18f, config)
+            ElementalAffinity.ARCANE -> spawnParticleBurst(e.x, e.y, if (isCrit) 12 else 8, 0.28f, 0.62f, 1f, config)
+            else -> spawnParticleBurst(e.x, e.y, if (isCrit) 10 else 7, 1f, 0.35f, 0.25f, config)
+        }
 
         if (e.hp <= 0) {
             e.active = false
@@ -661,12 +813,27 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         }
     }
 
-    private fun damagePlayer(rawAtk: Int, config: RenderConfig) {
+    private fun damagePlayer(
+        rawAtk: Int,
+        config: RenderConfig,
+        affinity: ElementalAffinity = ElementalAffinity.PHYSICAL
+    ) {
         if (invulnTimer > 0f || phase != GamePhase.PLAYING) return
         val mitigated = (rawAtk - playerDefTotal()).coerceAtLeast(3)
         playerHp = (playerHp - mitigated).coerceAtLeast(0)
         invulnTimer = 0.55f
         playerHitFlash = 1f
+        spawnFloatingText(
+            worldX = playerX,
+            worldY = playerY - 0.64f,
+            amountText = "-$mitigated",
+            tagText = if (affinity == ElementalAffinity.FIRE) affinity.labelUk else "",
+            affinity = affinity,
+            effectiveness = AffinityEffectiveness.NEUTRAL,
+            isCrit = false,
+            isPlayerHit = true
+        )
+        queueSoundCue(SoundCue.PLAYER_HIT)
         spawnParticleBurst(playerX, playerY, 8, 0.95f, 0.2f, 0.2f, config)
         if (config.enableScreenShake) {
             screenShakeTimer = 0.15f
@@ -693,7 +860,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 val dy = p.y - playerY
                 if (dx * dx + dy * dy < 0.42f * 0.42f) {
                     p.active = false
-                    damagePlayer(p.damage, config)
+                    damagePlayer(p.damage, config, ElementalAffinity.FIRE)
                 }
             }
         }
@@ -819,11 +986,14 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             PropKind.CHEST -> if (!p.used) {
                 p.used = true
                 collectItem(p.lootId)
+                queueSoundCue(SoundCue.CHEST)
                 spawnParticleBurst(p.x, p.y, 12, 0.95f, 0.8f, 0.25f, config)
             }
             PropKind.LEVER -> if (!p.used) {
                 p.used = true
                 map.unlockGate()
+                cachedMiniMapTerrain = map.encodeMiniMapTerrain()
+                queueSoundCue(SoundCue.LEVER)
                 showToast("Залізну Браму до Святилища відчинено!")
                 spawnParticleBurst(p.x, p.y, 10, 0.9f, 0.6f, 0.2f, config)
             }
@@ -886,33 +1056,56 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 ItemType.WEAPON -> {
                     val prev = equippedWeapon
                     equippedWeapon = item.copy(count = 1)
-                    backpack.removeAt(idx)
-                    if (prev != null) backpack.add(prev)
+                    if (prev != null) backpack[idx] = prev else backpack.removeAt(idx)
                     showToast("Екіпіровано: ${item.nameUk}")
                 }
                 ItemType.SHIELD -> {
                     val prev = equippedShield
                     equippedShield = item.copy(count = 1)
-                    backpack.removeAt(idx)
-                    if (prev != null) backpack.add(prev)
+                    if (prev != null) backpack[idx] = prev else backpack.removeAt(idx)
                     showToast("Екіпіровано: ${item.nameUk}")
                 }
                 ItemType.HELMET -> {
                     val prev = equippedHelmet
                     equippedHelmet = item.copy(count = 1)
-                    backpack.removeAt(idx)
-                    if (prev != null) backpack.add(prev)
+                    if (prev != null) backpack[idx] = prev else backpack.removeAt(idx)
                     showToast("Екіпіровано: ${item.nameUk}")
                 }
                 ItemType.CLOAK -> {
                     val prev = equippedCloak
                     equippedCloak = item.copy(count = 1)
-                    backpack.removeAt(idx)
-                    if (prev != null) backpack.add(prev)
+                    if (prev != null) backpack[idx] = prev else backpack.removeAt(idx)
                     showToast("Екіпіровано: ${item.nameUk}")
                 }
                 ItemType.GOLD -> Unit
             }
+        }
+    }
+
+    fun unequipSlot(type: ItemType) {
+        synchronized(stateLock) {
+            val removed: RpgItem? = when (type) {
+                ItemType.WEAPON -> equippedWeapon?.also { equippedWeapon = null }
+                ItemType.SHIELD -> equippedShield?.also { equippedShield = null }
+                ItemType.HELMET -> equippedHelmet?.also { equippedHelmet = null }
+                ItemType.CLOAK -> equippedCloak?.also { equippedCloak = null }
+                ItemType.CONSUMABLE, ItemType.GOLD -> null
+            }
+            if (removed != null) {
+                backpack.add(removed.copy(count = 1))
+                showToast("Знято: ${removed.nameUk}")
+            }
+        }
+    }
+
+    fun reorderBackpackItem(fromItemId: String, toItemId: String) {
+        if (fromItemId == toItemId) return
+        synchronized(stateLock) {
+            val fromIdx = backpack.indexOfFirst { it.id == fromItemId }
+            val toIdx = backpack.indexOfFirst { it.id == toItemId }
+            if (fromIdx < 0 || toIdx < 0 || fromIdx == toIdx) return
+            val moved = backpack.removeAt(fromIdx)
+            backpack.add(toIdx, moved)
         }
     }
 
@@ -927,11 +1120,26 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             return
         }
         val pot = backpack[idx]
+        val beforeHp = playerHp
         playerHp = (playerHp + pot.healAmount).coerceAtMost(playerMaxHp)
+        val healed = (playerHp - beforeHp).coerceAtLeast(0)
         if (pot.count > 1) {
             backpack[idx] = pot.copy(count = pot.count - 1)
         } else {
             backpack.removeAt(idx)
+        }
+        if (healed > 0) {
+            spawnFloatingText(
+                worldX = playerX,
+                worldY = playerY - 0.68f,
+                amountText = "+$healed",
+                tagText = "HP",
+                affinity = ElementalAffinity.HEAL,
+                effectiveness = AffinityEffectiveness.NEUTRAL,
+                isCrit = false,
+                isPlayerHit = false
+            )
+            queueSoundCue(SoundCue.POTION)
         }
         showToast("+${pot.healAmount} HP")
     }
@@ -1017,7 +1225,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 backpack = savedBackpack,
                 props = savedProps,
                 enemies = savedEnemies,
-                pickups = savedPickups
+                pickups = savedPickups,
+                discoveredMask = cachedDiscoveredMask
             )
         }
     }
@@ -1085,6 +1294,27 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 }
             }
 
+            if (snapshot.discoveredMask.length == discoveredTiles.size) {
+                var count = 0
+                for (i in discoveredTiles.indices) {
+                    val revealed = snapshot.discoveredMask[i] == '1'
+                    discoveredTiles[i] = revealed
+                    if (revealed) count++
+                }
+                discoveredTileCount = count
+            } else {
+                discoveredTiles.fill(false)
+                discoveredTileCount = 0
+            }
+            cachedMiniMapTerrain = map.encodeMiniMapTerrain()
+            lastRevealTileX = -999
+            lastRevealTileY = -999
+            revealAroundPlayer(force = true)
+
+            floatingTexts.forEach { it.active = false }
+            hasActiveFloatingTexts = false
+            clearSoundCues()
+
             findNearestInteractable()
             showToast("Збереження завантажено")
         }
@@ -1135,7 +1365,188 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                     activeEntities = activeEntitiesRendered,
                     activeParticles = activeParticlesCount,
                     drawCalls = drawCalls
+                ),
+                miniMap = buildMiniMapSnapshot()
+            )
+        }
+    }
+
+    fun isTileDiscovered(tx: Int, ty: Int): Boolean {
+        if (tx !in 0 until DungeonMap.WIDTH || ty !in 0 until DungeonMap.HEIGHT) return false
+        return discoveredTiles[ty * DungeonMap.WIDTH + tx]
+    }
+
+    fun revealAroundPlayer(force: Boolean = false) {
+        val tx = floor(playerX.toDouble()).toInt()
+        val ty = floor(playerY.toDouble()).toInt()
+        if (!force && tx == lastRevealTileX && ty == lastRevealTileY) return
+
+        lastRevealTileX = tx
+        lastRevealTileY = ty
+        val rInt = 6
+        val rSq = VISION_RADIUS_TILES * VISION_RADIUS_TILES
+        val minX = (tx - rInt).coerceAtLeast(0)
+        val maxX = (tx + rInt).coerceAtMost(DungeonMap.WIDTH - 1)
+        val minY = (ty - rInt).coerceAtLeast(0)
+        val maxY = (ty + rInt).coerceAtMost(DungeonMap.HEIGHT - 1)
+
+        var changed = force || cachedDiscoveredMask.isEmpty()
+        for (y in minY..maxY) {
+            for (x in minX..maxX) {
+                val dx = (x + 0.5f) - playerX
+                val dy = (y + 0.5f) - playerY
+                if (dx * dx + dy * dy <= rSq) {
+                    val idx = y * DungeonMap.WIDTH + x
+                    if (!discoveredTiles[idx]) {
+                        discoveredTiles[idx] = true
+                        discoveredTileCount++
+                        changed = true
+                    }
+                }
+            }
+        }
+
+        if (changed) {
+            val sb = StringBuilder(discoveredTiles.size)
+            for (b in discoveredTiles) {
+                sb.append(if (b) '1' else '0')
+            }
+            cachedDiscoveredMask = sb.toString()
+        }
+    }
+
+    private fun buildMiniMapSnapshot(): MiniMapState {
+        val terrain = if (map.gateUnlocked && !cachedMiniMapTerrain.contains('O')) {
+            cachedMiniMapTerrain = map.encodeMiniMapTerrain()
+            cachedMiniMapTerrain
+        } else {
+            cachedMiniMapTerrain
+        }
+        val markers = buildList {
+            for (p in props) {
+                if (!p.active) continue
+                val ptx = floor(p.x.toDouble()).toInt()
+                val pty = floor(p.y.toDouble()).toInt()
+                when (p.kind) {
+                    PropKind.LEVER -> if (!p.used) {
+                        add(MiniMapMarker(p.x, p.y, MiniMapMarkerKind.LEVER, isPrimaryQuest = !map.gateUnlocked))
+                    }
+                    PropKind.NPC_CHRONICLER, PropKind.NPC_CULTIST -> if (isTileDiscovered(ptx, pty)) {
+                        add(MiniMapMarker(p.x, p.y, MiniMapMarkerKind.NPC, isPrimaryQuest = false))
+                    }
+                    PropKind.CHEST -> if (!p.used && isTileDiscovered(ptx, pty)) {
+                        add(MiniMapMarker(p.x, p.y, MiniMapMarkerKind.CHEST, isPrimaryQuest = false))
+                    }
+                    else -> Unit
+                }
+            }
+
+            add(
+                MiniMapMarker(
+                    x = 23.5f,
+                    y = 11.5f,
+                    kind = if (map.gateUnlocked) MiniMapMarkerKind.GATE_OPEN else MiniMapMarkerKind.GATE_LOCKED,
+                    isPrimaryQuest = !map.gateUnlocked
                 )
+            )
+
+            for (e in enemies) {
+                if (e.active && e.kind.isBoss) {
+                    add(MiniMapMarker(e.x, e.y, MiniMapMarkerKind.BOSS, isPrimaryQuest = map.gateUnlocked))
+                }
+            }
+        }
+
+        val pct = ((discoveredTileCount * 100f) / discoveredTiles.size.toFloat()).toInt().coerceIn(0, 100)
+        return MiniMapState(
+            mapWidth = DungeonMap.WIDTH,
+            mapHeight = DungeonMap.HEIGHT,
+            playerX = playerX,
+            playerY = playerY,
+            playerFacing = playerFacing,
+            terrainLayout = terrain,
+            discoveredMask = cachedDiscoveredMask,
+            discoveredPercent = pct,
+            gateUnlocked = map.gateUnlocked,
+            markers = markers
+        )
+    }
+
+    fun spawnFloatingText(
+        worldX: Float,
+        worldY: Float,
+        amountText: String,
+        tagText: String,
+        affinity: ElementalAffinity,
+        effectiveness: AffinityEffectiveness,
+        isCrit: Boolean,
+        isPlayerHit: Boolean
+    ) {
+        var target = floatingTexts.firstOrNull { !it.active }
+        if (target == null) {
+            target = floatingTexts.maxByOrNull { it.age } ?: floatingTexts[0]
+        }
+        target.apply {
+            active = true
+            id = nextFloatingTextId++
+            this.worldX = worldX
+            this.worldY = worldY
+            this.amountText = amountText
+            this.tagText = tagText
+            this.affinity = affinity
+            this.effectiveness = effectiveness
+            this.isCrit = isCrit
+            this.isPlayerHit = isPlayerHit
+            age = 0f
+            duration = if (isCrit) 1.15f else 0.95f
+            driftX = (nextRand01() - 0.5f) * 0.72f
+        }
+        hasActiveFloatingTexts = true
+    }
+
+    private fun updateFloatingTexts(dt: Float) {
+        var anyActive = false
+        for (ft in floatingTexts) {
+            if (!ft.active) continue
+            ft.age += dt
+            if (ft.age >= ft.duration) {
+                ft.active = false
+            } else {
+                anyActive = true
+            }
+        }
+        hasActiveFloatingTexts = anyActive
+    }
+
+    fun exportFloatingTextSnapshot(renderCamX: Float = camX, renderCamY: Float = camY): FloatingTextFrameSnapshot {
+        synchronized(stateLock) {
+            if (!hasActiveFloatingTexts) {
+                return FloatingTextFrameSnapshot(camX = renderCamX, camY = renderCamY)
+            }
+            val list = buildList {
+                for (ft in floatingTexts) {
+                    if (!ft.active) continue
+                    add(
+                        FloatingTextItem(
+                            id = ft.id,
+                            worldX = ft.worldX,
+                            worldY = ft.worldY,
+                            amountText = ft.amountText,
+                            tagText = ft.tagText,
+                            affinity = ft.affinity,
+                            effectiveness = ft.effectiveness,
+                            isCrit = ft.isCrit,
+                            isPlayerHit = ft.isPlayerHit,
+                            progress = (ft.age / ft.duration).coerceIn(0f, 1f),
+                            driftX = ft.driftX
+                        )
+                    )
+                }
+            }
+            return FloatingTextFrameSnapshot(
+                camX = renderCamX,
+                camY = renderCamY,
+                items = list
             )
         }
     }
@@ -1153,18 +1564,22 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         "iron_sword" to RpgItem(
             id = "iron_sword",
             nameUk = "Залізний Меч",
-            descriptionUk = "Надійний клинок стража (+6 ATK)",
+            descriptionUk = "Фіз. клинок (+6 ATK, УДАР: Магія)",
             type = ItemType.WEAPON,
             spriteId = SpriteId.ITEM_SWORD,
-            atkBonus = 6
+            atkBonus = 6,
+            affinity = ElementalAffinity.PHYSICAL,
+            critBonus = 0.0f
         ),
         "battle_axe" to RpgItem(
             id = "battle_axe",
             nameUk = "Бойова Сокира",
-            descriptionUk = "Важке лезо, що трощить броню (+15 ATK)",
+            descriptionUk = "Вогонь Кузні (+15 ATK, +12% Крит)",
             type = ItemType.WEAPON,
             spriteId = SpriteId.ITEM_AXE,
-            atkBonus = 15
+            atkBonus = 15,
+            affinity = ElementalAffinity.FIRE,
+            critBonus = 0.12f
         ),
         "kite_shield" to RpgItem(
             id = "kite_shield",
@@ -1185,11 +1600,12 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         "shadow_hood" to RpgItem(
             id = "shadow_hood",
             nameUk = "Тіньовий Капюшон",
-            descriptionUk = "Легкий плащ (+3 DEF, +0.9 Швидкість)",
+            descriptionUk = "Легкий плащ (+3 DEF, +0.9 Швидк., +8% Крит)",
             type = ItemType.CLOAK,
             spriteId = SpriteId.ITEM_HOOD,
             defBonus = 3,
-            spdBonus = 0.9f
+            spdBonus = 0.9f,
+            critBonus = 0.08f
         ),
         "crimson_potion" to RpgItem(
             id = "crimson_potion",
@@ -1200,4 +1616,33 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             healAmount = 55
         )
     )
+
+    private fun queueSoundCue(cue: SoundCue) {
+        if (soundCueCount >= soundCueBuffer.size) {
+            soundCueHead = (soundCueHead + 1) % soundCueBuffer.size
+            soundCueCount--
+        }
+        soundCueBuffer[soundCueTail] = cue
+        soundCueTail = (soundCueTail + 1) % soundCueBuffer.size
+        soundCueCount++
+        hasPendingSoundCues = true
+    }
+
+    private fun clearSoundCues() {
+        soundCueHead = 0
+        soundCueTail = 0
+        soundCueCount = 0
+        hasPendingSoundCues = false
+    }
+
+    fun drainSoundCues(out: MutableList<SoundCue>) {
+        synchronized(stateLock) {
+            while (soundCueCount > 0) {
+                out.add(soundCueBuffer[soundCueHead])
+                soundCueHead = (soundCueHead + 1) % soundCueBuffer.size
+                soundCueCount--
+            }
+            hasPendingSoundCues = false
+        }
+    }
 }

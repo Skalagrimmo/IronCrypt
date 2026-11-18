@@ -41,6 +41,7 @@ class SaveLoadPersistenceRobolectricTest {
         source.kills = 7
         source.bossesDefeated = 1
         source.map.unlockGate()
+        source.revealAroundPlayer(force = true)
         source.selectDialogueChoice(null, "GIFT_POTION")
         source.selectDialogueChoice(null, "GIFT_HOOD")
         source.equipOrUseItem("shadow_hood")
@@ -94,6 +95,9 @@ class SaveLoadPersistenceRobolectricTest {
         assertEquals(1, target.bossesDefeated)
         assertTrue(target.map.gateUnlocked)
         assertTrue(target.map.isWalkable(23.5f, 11.5f, 0.3f))
+        assertTrue(target.isTileDiscovered(4, 12))
+        assertTrue(target.isTileDiscovered(19, 11))
+        assertFalse(target.isTileDiscovered(33, 20))
         assertEquals("shadow_hood", target.equippedCloak?.id)
         val reExported = target.exportSnapshot(savedAtMs = 1_700_000_123_000L)
         assertTrue(reExported.giftedPotion)

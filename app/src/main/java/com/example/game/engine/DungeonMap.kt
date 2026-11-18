@@ -151,4 +151,19 @@ class DungeonMap {
             else -> SpriteId.TILE_STONE_BRICK
         }
     }
+
+    fun encodeMiniMapTerrain(): String {
+        val sb = StringBuilder(WIDTH * HEIGHT)
+        for (i in tiles.indices) {
+            val code = when (tiles[i]) {
+                TILE_WALL -> 'W'
+                TILE_GATE_LOCKED -> 'L'
+                TILE_GATE_OPEN -> 'O'
+                TILE_GRATE, TILE_PLANKS, TILE_STAIRS, TILE_ARCH -> 'S'
+                else -> 'F'
+            }
+            sb.append(code)
+        }
+        return sb.toString()
+    }
 }

@@ -34,7 +34,8 @@ class IronCryptRenderer(
     private val simulation: GameSimulation,
     private val governor: ExynosQualityGovernor,
     private val onScaleRequested: (Float) -> Unit,
-    private val onHudUpdate: () -> Unit
+    private val onHudUpdate: () -> Unit,
+    private val onSoundCuesReady: () -> Unit = {}
 ) : GLSurfaceView.Renderer {
 
     private val batcher = GlSpriteBatcher(maxQuads = 1400)
@@ -52,6 +53,14 @@ class IronCryptRenderer(
 
     @Volatile
     var lastDrawCalls: Int = 0
+        private set
+
+    @Volatile
+    var renderCamX: Float = simulation.camX
+        private set
+
+    @Volatile
+    var renderCamY: Float = simulation.camY
         private set
 
     // Pre-allocated sort buffers for Y-sorted actors/props (zero per-frame heap alloc)
@@ -88,6 +97,9 @@ class IronCryptRenderer(
 
         val config = governor.resolveRenderConfig()
         simulation.update(dt, config)
+        if (simulation.hasPendingSoundCues) {
+            onSoundCuesReady()
+        }
 
         val aspect = viewWidth.toFloat() / viewHeight.toFloat()
         val halfH = visibleWorldHeight * 0.5f
@@ -103,6 +115,8 @@ class IronCryptRenderer(
 
         val cx = simulation.camX + shakeX
         val cy = simulation.camY + shakeY
+        renderCamX = cx
+        renderCamY = cy
         Matrix.orthoM(projMatrix, 0, cx - halfW, cx + halfW, cy + halfH, cy - halfH, -1f, 1f)
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)

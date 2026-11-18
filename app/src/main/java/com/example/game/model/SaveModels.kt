@@ -61,7 +61,8 @@ data class GameSaveSnapshot(
     val backpack: List<SavedItemStack>,
     val props: List<SavedPropState>,
     val enemies: List<SavedEnemyState>,
-    val pickups: List<SavedPickupState>
+    val pickups: List<SavedPickupState>,
+    val discoveredMask: String = ""
 ) {
     fun toJson(): String {
         val root = JSONObject().apply {
@@ -83,6 +84,7 @@ data class GameSaveSnapshot(
             put("equippedShieldId", equippedShieldId ?: JSONObject.NULL)
             put("equippedHelmetId", equippedHelmetId ?: JSONObject.NULL)
             put("equippedCloakId", equippedCloakId ?: JSONObject.NULL)
+            put("discoveredMask", discoveredMask)
 
             val bpArr = JSONArray()
             backpack.forEach { stack ->
@@ -219,7 +221,8 @@ data class GameSaveSnapshot(
                     backpack = bpList,
                     props = propList,
                     enemies = enemyList,
-                    pickups = pickupList
+                    pickups = pickupList,
+                    discoveredMask = root.optString("discoveredMask", "")
                 )
             }.getOrNull()
         }

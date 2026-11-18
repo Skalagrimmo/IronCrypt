@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
@@ -26,11 +28,14 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -43,6 +48,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.AudioSettings
 import com.example.data.GraphicsSettings
 import com.example.game.model.GamePhase
 import com.example.game.model.HudUiState
@@ -68,6 +74,7 @@ import java.util.Locale
 fun UnifiedPauseMenu(
     hud: HudUiState,
     settings: GraphicsSettings,
+    audioSettings: AudioSettings,
     saveSummary: SaveSlotSummary,
     activeTab: PauseMenuTab,
     onSelectTab: (PauseMenuTab) -> Unit,
@@ -85,6 +92,11 @@ fun UnifiedPauseMenu(
     onSelectResolutionScale: (Float) -> Unit,
     onSelectPoolBudget: (QualityTier) -> Unit,
     onToggleTelemetry: (Boolean) -> Unit,
+    onToggleAmbient: (Boolean) -> Unit,
+    onAmbientVolumeChange: (Float) -> Unit,
+    onToggleSfx: (Boolean) -> Unit,
+    onSfxVolumeChange: (Float) -> Unit,
+    onTestSound: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -126,6 +138,12 @@ fun UnifiedPauseMenu(
                         selected = activeTab == PauseMenuTab.GRAPHICS,
                         testTag = "pause_tab_graphics",
                         onClick = { onSelectTab(PauseMenuTab.GRAPHICS) }
+                    )
+                    PauseTabChip(
+                        label = stringResource(R.string.label_pause_tab_audio),
+                        selected = activeTab == PauseMenuTab.AUDIO,
+                        testTag = "pause_tab_audio",
+                        onClick = { onSelectTab(PauseMenuTab.AUDIO) }
                     )
                 }
 
@@ -169,6 +187,15 @@ fun UnifiedPauseMenu(
                     onSelectResolutionScale = onSelectResolutionScale,
                     onSelectPoolBudget = onSelectPoolBudget,
                     onToggleTelemetry = onToggleTelemetry
+                )
+
+                PauseMenuTab.AUDIO -> PauseAudioTabContent(
+                    audioSettings = audioSettings,
+                    onToggleAmbient = onToggleAmbient,
+                    onAmbientVolumeChange = onAmbientVolumeChange,
+                    onToggleSfx = onToggleSfx,
+                    onSfxVolumeChange = onSfxVolumeChange,
+                    onTestSound = onTestSound
                 )
             }
         }
@@ -692,6 +719,145 @@ private fun GraphicsChipSelectorRow(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PauseAudioTabContent(
+    audioSettings: AudioSettings,
+    onToggleAmbient: (Boolean) -> Unit,
+    onAmbientVolumeChange: (Float) -> Unit,
+    onToggleSfx: (Boolean) -> Unit,
+    onSfxVolumeChange: (Float) -> Unit,
+    onTestSound: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        AudioChannelCard(
+            title = "Атмосфера підземелля (Ambient)",
+            subtitle = "Похмурий ембієнт крипти (автопауза у фоні)",
+            enabled = audioSettings.ambientEnabled,
+            volume = audioSettings.ambientVolume,
+            switchTag = "audio_ambient_switch",
+            sliderTag = "audio_ambient_slider",
+            onToggle = onToggleAmbient,
+            onVolumeChange = onAmbientVolumeChange
+        )
+
+        AudioChannelCard(
+            title = "Бойові та світові ефекти (SFX)",
+            subtitle = "Удари зброєю, крит, ривок, зілля, скрині та важіль",
+            enabled = audioSettings.sfxEnabled,
+            volume = audioSettings.sfxVolume,
+            switchTag = "audio_sfx_switch",
+            sliderTag = "audio_sfx_slider",
+            onToggle = onToggleSfx,
+            onVolumeChange = onSfxVolumeChange
+        )
+
+        Button(
+            onClick = onTestSound,
+            enabled = audioSettings.sfxEnabled,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MoltenBrass,
+                contentColor = Color.Black
+            ),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("audio_test_button")
+        ) {
+            Icon(Icons.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.action_test_sound),
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+    }
+}
+
+@Composable
+private fun AudioChannelCard(
+    title: String,
+    subtitle: String,
+    enabled: Boolean,
+    volume: Float,
+    switchTag: String,
+    sliderTag: String,
+    onToggle: (Boolean) -> Unit,
+    onVolumeChange: (Float) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(IronSurfaceHigh)
+            .border(1.dp, IronBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .minimumInteractiveComponentSize()
+                    .clickable { onToggle(!enabled) }
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = AgedParchment
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SteelMist
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Switch(
+                checked = enabled,
+                onCheckedChange = onToggle,
+                modifier = Modifier.testTag(switchTag)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Гучність: ${(volume * 100).toInt()}%",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (enabled) MoltenBrass else SteelMist,
+                modifier = Modifier.width(106.dp)
+            )
+            Slider(
+                value = volume,
+                onValueChange = onVolumeChange,
+                enabled = enabled,
+                colors = SliderDefaults.colors(
+                    thumbColor = MoltenBrass,
+                    activeTrackColor = MoltenBrass,
+                    inactiveTrackColor = IronPanel
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(36.dp)
+                    .testTag(sliderTag)
+            )
         }
     }
 }

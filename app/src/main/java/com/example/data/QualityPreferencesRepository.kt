@@ -119,6 +119,44 @@ class QualityPreferencesRepository(private val context: Context) {
         }
     }
 
+    private val keyAmbientEnabled = booleanPreferencesKey("audio_ambient_enabled")
+    private val keyAmbientVolume = floatPreferencesKey("audio_ambient_volume")
+    private val keySfxEnabled = booleanPreferencesKey("audio_sfx_enabled")
+    private val keySfxVolume = floatPreferencesKey("audio_sfx_volume")
+
+    val audioSettingsFlow: Flow<AudioSettings> = context.ironCryptDataStore.data.map { prefs ->
+        AudioSettings(
+            ambientEnabled = prefs[keyAmbientEnabled] ?: true,
+            ambientVolume = (prefs[keyAmbientVolume] ?: 0.55f).coerceIn(0f, 1f),
+            sfxEnabled = prefs[keySfxEnabled] ?: true,
+            sfxVolume = (prefs[keySfxVolume] ?: 0.85f).coerceIn(0f, 1f)
+        )
+    }
+
+    suspend fun setAmbientEnabled(enabled: Boolean) {
+        context.ironCryptDataStore.edit { prefs ->
+            prefs[keyAmbientEnabled] = enabled
+        }
+    }
+
+    suspend fun setAmbientVolume(volume: Float) {
+        context.ironCryptDataStore.edit { prefs ->
+            prefs[keyAmbientVolume] = volume.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setSfxEnabled(enabled: Boolean) {
+        context.ironCryptDataStore.edit { prefs ->
+            prefs[keySfxEnabled] = enabled
+        }
+    }
+
+    suspend fun setSfxVolume(volume: Float) {
+        context.ironCryptDataStore.edit { prefs ->
+            prefs[keySfxVolume] = volume.coerceIn(0f, 1f)
+        }
+    }
+
     suspend fun setShowTelemetry(show: Boolean) {
         context.ironCryptDataStore.edit { prefs ->
             prefs[keyShowTelemetry] = show
@@ -141,3 +179,10 @@ class QualityPreferencesRepository(private val context: Context) {
         prefs[keyShowTelemetry] = settings.showTelemetry
     }
 }
+
+data class AudioSettings(
+    val ambientEnabled: Boolean = true,
+    val ambientVolume: Float = 0.55f,
+    val sfxEnabled: Boolean = true,
+    val sfxVolume: Float = 0.85f
+)

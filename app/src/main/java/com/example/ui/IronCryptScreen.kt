@@ -62,8 +62,10 @@ import com.example.game.model.SaveSlotSummary
 import com.example.game.model.SpriteId
 import com.example.ui.components.CombatActionPad
 import com.example.ui.components.DialogueOverlay
+import com.example.ui.components.FloatingCombatTextOverlay
 import com.example.ui.components.HudTopBar
 import com.example.ui.components.InventoryOverlay
+import com.example.ui.components.MiniMapOverlay
 import com.example.ui.components.UnifiedPauseMenu
 import com.example.ui.components.VirtualJoystick
 import com.example.ui.theme.AgedParchment
@@ -80,11 +82,13 @@ import com.example.ui.theme.VitalEmerald
 fun IronCryptScreen(viewModel: GameViewModel) {
     val hud by viewModel.hudState.collectAsStateWithLifecycle()
     val settings by viewModel.graphicsSettings.collectAsStateWithLifecycle()
+    val audioSettings by viewModel.audioSettings.collectAsStateWithLifecycle()
     val saveSummary by viewModel.saveSummary.collectAsStateWithLifecycle()
     val isInventoryOpen by viewModel.isInventoryOpen.collectAsStateWithLifecycle()
     val isPauseMenuOpen by viewModel.isPauseMenuOpen.collectAsStateWithLifecycle()
     val activePauseTab by viewModel.activePauseTab.collectAsStateWithLifecycle()
     val renderScale by viewModel.activeRenderScale.collectAsStateWithLifecycle()
+    val miniMapMode by viewModel.miniMapMode.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -112,9 +116,12 @@ fun IronCryptScreen(viewModel: GameViewModel) {
     DisposableEffect(lifecycleOwner, glView) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> glView.onResume()
+                Lifecycle.Event.ON_RESUME -> {
+                    viewModel.onAppResume()
+                    glView.onResume()
+                }
                 Lifecycle.Event.ON_PAUSE -> {
-                    viewModel.autoSaveIfPlaying()
+                    viewModel.onAppPause()
                     glView.onPause()
                 }
                 else -> Unit
@@ -146,6 +153,13 @@ fun IronCryptScreen(viewModel: GameViewModel) {
     ) {
         AndroidView(
             factory = { glView },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        FloatingCombatTextOverlay(
+            isPlaying = hud.phase == GamePhase.PLAYING && !isInventoryOpen && !isPauseMenuOpen,
+            hasActiveProvider = viewModel::hasActiveFloatingTexts,
+            snapshotProvider = viewModel::exportFloatingTextSnapshot,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -193,6 +207,17 @@ fun IronCryptScreen(viewModel: GameViewModel) {
                         .padding(start = 6.dp, bottom = 4.dp)
                 )
 
+                MiniMapOverlay(
+                    miniMap = hud.miniMap,
+                    mode = miniMapMode,
+                    onToggleExpand = viewModel::toggleMiniMapExpanded,
+                    onMinimize = viewModel::minimizeMiniMap,
+                    onRestore = viewModel::restoreMiniMap,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 56.dp)
+                )
+
                 CombatActionPad(
                     atlasStore = viewModel.atlasStore,
                     cleaveCooldownRatio = hud.cleaveCooldownRatio,
@@ -235,7 +260,9 @@ fun IronCryptScreen(viewModel: GameViewModel) {
             InventoryOverlay(
                 hud = hud,
                 atlasStore = viewModel.atlasStore,
-                onItemClick = viewModel::equipOrUseItem,
+                onEquipOrUse = viewModel::equipOrUseItem,
+                onUnequipSlot = viewModel::unequipItem,
+                onMoveItem = viewModel::moveBackpackItem,
                 onClose = viewModel::closeInventory
             )
         }
@@ -244,6 +271,7 @@ fun IronCryptScreen(viewModel: GameViewModel) {
             UnifiedPauseMenu(
                 hud = hud,
                 settings = settings,
+                audioSettings = audioSettings,
                 saveSummary = saveSummary,
                 activeTab = activePauseTab,
                 onSelectTab = viewModel::selectPauseTab,
@@ -260,7 +288,12 @@ fun IronCryptScreen(viewModel: GameViewModel) {
                 onToggleScreenShake = viewModel::toggleScreenShake,
                 onSelectResolutionScale = viewModel::setResolutionScale,
                 onSelectPoolBudget = viewModel::setPoolBudgetTier,
-                onToggleTelemetry = viewModel::setShowTelemetry
+                onToggleTelemetry = viewModel::setShowTelemetry,
+                onToggleAmbient = viewModel::setAmbientEnabled,
+                onAmbientVolumeChange = viewModel::setAmbientVolume,
+                onToggleSfx = viewModel::setSfxEnabled,
+                onSfxVolumeChange = viewModel::setSfxVolume,
+                onTestSound = viewModel::previewCombatSfx
             )
         }
 

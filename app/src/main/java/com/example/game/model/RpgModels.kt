@@ -92,7 +92,20 @@ data class RenderConfig(
 
 enum class PauseMenuTab {
     GAME,
-    GRAPHICS
+    GRAPHICS,
+    AUDIO
+}
+
+enum class SoundCue {
+    SWING,
+    CLEAVE,
+    HIT,
+    CRIT,
+    PLAYER_HIT,
+    DASH,
+    POTION,
+    CHEST,
+    LEVER
 }
 
 enum class Direction {
@@ -111,6 +124,19 @@ enum class ItemType {
     GOLD
 }
 
+enum class ElementalAffinity(val labelUk: String) {
+    PHYSICAL("ФІЗ."),
+    FIRE("ВОГОНЬ"),
+    ARCANE("МАГІЯ"),
+    HEAL("ЛІК.")
+}
+
+enum class AffinityEffectiveness(val badgeUk: String) {
+    WEAKNESS("ВРАЗЛ."),
+    NEUTRAL(""),
+    RESISTANT("ОПІР")
+}
+
 data class RpgItem(
     val id: String,
     val nameUk: String,
@@ -121,6 +147,8 @@ data class RpgItem(
     val defBonus: Int = 0,
     val spdBonus: Float = 0f,
     val healAmount: Int = 0,
+    val affinity: ElementalAffinity = ElementalAffinity.PHYSICAL,
+    val critBonus: Float = 0f,
     val count: Int = 1
 )
 
@@ -163,6 +191,62 @@ enum class GamePhase {
     DEFEAT
 }
 
+enum class MiniMapDisplayMode {
+    MINIMIZED,
+    COMPACT,
+    EXPANDED
+}
+
+enum class MiniMapMarkerKind {
+    LEVER,
+    GATE_LOCKED,
+    GATE_OPEN,
+    BOSS,
+    NPC,
+    CHEST
+}
+
+data class MiniMapMarker(
+    val x: Float,
+    val y: Float,
+    val kind: MiniMapMarkerKind,
+    val isPrimaryQuest: Boolean = false
+)
+
+data class FloatingTextItem(
+    val id: Long,
+    val worldX: Float,
+    val worldY: Float,
+    val amountText: String,
+    val tagText: String,
+    val affinity: ElementalAffinity,
+    val effectiveness: AffinityEffectiveness,
+    val isCrit: Boolean,
+    val isPlayerHit: Boolean,
+    val progress: Float,
+    val driftX: Float
+)
+
+data class FloatingTextFrameSnapshot(
+    val camX: Float = 4.5f,
+    val camY: Float = 12.0f,
+    val visibleWorldHeight: Float = 9.2f,
+    val items: List<FloatingTextItem> = emptyList()
+)
+
+data class MiniMapState(
+    val mapWidth: Int = 36,
+    val mapHeight: Int = 24,
+    val playerX: Float = 4.5f,
+    val playerY: Float = 12.0f,
+    val playerFacing: Direction = Direction.EAST,
+    val terrainLayout: String = "",
+    val discoveredMask: String = "",
+    val discoveredPercent: Int = 0,
+    val gateUnlocked: Boolean = false,
+    val markers: List<MiniMapMarker> = emptyList()
+)
+
 data class HudUiState(
     val phase: GamePhase = GamePhase.TITLE,
     val hp: Int = 120,
@@ -188,5 +272,6 @@ data class HudUiState(
     val backpack: List<RpgItem> = emptyList(),
     val activeDialogue: ActiveDialogue? = null,
     val toastMessageUk: String? = null,
-    val telemetry: TelemetrySnapshot = TelemetrySnapshot()
+    val telemetry: TelemetrySnapshot = TelemetrySnapshot(),
+    val miniMap: MiniMapState = MiniMapState()
 )

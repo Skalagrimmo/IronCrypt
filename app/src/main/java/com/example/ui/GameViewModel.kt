@@ -3,6 +3,8 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.audio.IronCryptSoundManager
+import com.example.data.AudioSettings
 import com.example.data.GameSaveRepository
 import com.example.data.GraphicsSettings
 import com.example.data.QualityPreferencesRepository
@@ -10,12 +12,16 @@ import com.example.game.engine.ExynosQualityGovernor
 import com.example.game.engine.GameSimulation
 import com.example.game.engine.IronCryptRenderer
 import com.example.game.model.AtlasBitmapStore
+import com.example.game.model.FloatingTextFrameSnapshot
 import com.example.game.model.GamePhase
 import com.example.game.model.HudUiState
+import com.example.game.model.ItemType
+import com.example.game.model.MiniMapDisplayMode
 import com.example.game.model.PauseMenuTab
 import com.example.game.model.QualityMode
 import com.example.game.model.QualityTier
 import com.example.game.model.SaveSlotSummary
+import com.example.game.model.SoundCue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,9 +35,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefsRepo = QualityPreferencesRepository(application)
     private val saveRepo = GameSaveRepository(application)
+    val soundManager = IronCryptSoundManager(application)
     val atlasStore = AtlasBitmapStore(application)
     val simulation = GameSimulation()
     val governor = ExynosQualityGovernor()
+
+    private val soundCueDrainScratch = ArrayList<SoundCue>(16)
 
     private val _hudState = MutableStateFlow(simulation.buildHudSnapshot(governor, 0))
     val hudState: StateFlow<HudUiState> = _hudState.asStateFlow()
@@ -48,10 +57,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeRenderScale = MutableStateFlow(QualityTier.HIGH.resolutionScale)
     val activeRenderScale: StateFlow<Float> = _activeRenderScale.asStateFlow()
 
+    private val _miniMapMode = MutableStateFlow(MiniMapDisplayMode.COMPACT)
+    val miniMapMode: StateFlow<MiniMapDisplayMode> = _miniMapMode.asStateFlow()
+
     val graphicsSettings: StateFlow<GraphicsSettings> = prefsRepo.settingsFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
         initialValue = GraphicsSettings()
+    )
+
+    val audioSettings: StateFlow<AudioSettings> = prefsRepo.audioSettingsFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = AudioSettings()
     )
 
     val saveSummary: StateFlow<SaveSlotSummary> = saveRepo.saveSummaryFlow.stateIn(
@@ -71,6 +89,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         },
         onHudUpdate = {
             syncHud()
+        },
+        onSoundCuesReady = {
+            flushSoundCues()
         }
     )
 
@@ -80,6 +101,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 governor.customSettings = settings
                 _activeRenderScale.value = governor.resolveRenderConfig().resolutionScale
                 syncHud()
+            }
+        }
+        viewModelScope.launch {
+            prefsRepo.audioSettingsFlow.collect { audio ->
+                soundManager.applySettings(audio)
             }
         }
     }
@@ -202,6 +228,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         syncHud()
     }
 
+    fun unequipItem(slotType: ItemType) {
+        simulation.unequipSlot(slotType)
+        syncHud()
+    }
+
+    fun moveBackpackItem(fromItemId: String, toItemId: String) {
+        simulation.reorderBackpackItem(fromItemId, toItemId)
+        syncHud()
+    }
+
     fun selectDialogueChoice(nextNodeId: String?, actionTag: String?) {
         simulation.selectDialogueChoice(nextNodeId, actionTag)
         syncHud()
@@ -223,6 +259,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun closePauseMenu() {
         _isPauseMenuOpen.value = false
         syncPauseFlag()
+    }
+
+    fun toggleMiniMapExpanded() {
+        _miniMapMode.value = when (_miniMapMode.value) {
+            MiniMapDisplayMode.MINIMIZED -> MiniMapDisplayMode.COMPACT
+            MiniMapDisplayMode.COMPACT -> MiniMapDisplayMode.EXPANDED
+            MiniMapDisplayMode.EXPANDED -> MiniMapDisplayMode.COMPACT
+        }
+    }
+
+    fun minimizeMiniMap() {
+        _miniMapMode.value = MiniMapDisplayMode.MINIMIZED
+    }
+
+    fun restoreMiniMap() {
+        _miniMapMode.value = MiniMapDisplayMode.COMPACT
     }
 
     fun setQualityMode(mode: QualityMode) {
@@ -260,8 +312,56 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         syncHud()
     }
 
+    fun setAmbientEnabled(enabled: Boolean) {
+        soundManager.applySettings(audioSettings.value.copy(ambientEnabled = enabled))
+        viewModelScope.launch { prefsRepo.setAmbientEnabled(enabled) }
+    }
+
+    fun setAmbientVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1f)
+        soundManager.applySettings(audioSettings.value.copy(ambientVolume = clamped))
+        viewModelScope.launch { prefsRepo.setAmbientVolume(clamped) }
+    }
+
+    fun setSfxEnabled(enabled: Boolean) {
+        soundManager.applySettings(audioSettings.value.copy(sfxEnabled = enabled))
+        viewModelScope.launch { prefsRepo.setSfxEnabled(enabled) }
+    }
+
+    fun setSfxVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1f)
+        soundManager.applySettings(audioSettings.value.copy(sfxVolume = clamped))
+        viewModelScope.launch { prefsRepo.setSfxVolume(clamped) }
+    }
+
+    fun previewCombatSfx() {
+        soundManager.playCue(SoundCue.CRIT)
+    }
+
+    fun onAppResume() {
+        soundManager.onAppResume()
+    }
+
+    fun onAppPause() {
+        autoSaveIfPlaying()
+        soundManager.onAppPause()
+    }
+
+    fun hasActiveFloatingTexts(): Boolean = simulation.hasActiveFloatingTexts
+
+    fun exportFloatingTextSnapshot(): FloatingTextFrameSnapshot =
+        simulation.exportFloatingTextSnapshot(renderer.renderCamX, renderer.renderCamY)
+
+    private fun flushSoundCues() {
+        soundCueDrainScratch.clear()
+        simulation.drainSoundCues(soundCueDrainScratch)
+        soundManager.playCues(soundCueDrainScratch)
+    }
+
     private fun syncPauseFlag() {
-        simulation.isPausedForOverlay = _isInventoryOpen.value || _isPauseMenuOpen.value
+        val overlayOpen = _isInventoryOpen.value || _isPauseMenuOpen.value
+        simulation.isPausedForOverlay = overlayOpen
+        soundManager.setMenuDucked(overlayOpen)
     }
 
     private fun syncHud() {
@@ -273,5 +373,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 saveRepo.clearSave()
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        soundManager.release()
     }
 }

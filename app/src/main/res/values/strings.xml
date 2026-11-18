@@ -20,9 +20,24 @@
     <string name="action_close">ЗАКРИТИ</string>
     <string name="label_pause_tab_game">ГРА</string>
     <string name="label_pause_tab_graphics">ГРАФІКА</string>
+    <string name="label_pause_tab_audio">ЗВУК</string>
+    <string name="action_test_sound">ПЕРЕВІРИТИ ЗВУК</string>
     <string name="label_quality_mode">НАЛАШТУВАННЯ ГРАФІКИ</string>
     <string name="label_equipment">СПОРЯДЖЕННЯ</string>
     <string name="label_backpack">РЮКЗАК</string>
+    <string name="label_inv_filter_all">ВСІ</string>
+    <string name="label_inv_filter_gear">СПОРЯДЖ.</string>
+    <string name="label_inv_filter_potions">ЗІЛЛЯ</string>
+    <string name="label_inv_hero_drop">ПЕРЕТЯГНІТЬ ЗІЛЛЯ НА ГЕРОЯ</string>
+    <string name="label_inv_hero_drop_ready">ВІДПУСТІТЬ, ЩОБ ВИПИТИ</string>
+    <string name="action_equip">ОДЯГТИ</string>
+    <string name="action_unequip">ЗНЯТИ</string>
+    <string name="action_consume">ВИПИТИ</string>
     <string name="label_victory">ВАРТА КРИПТИ ПОВАЛЕНА</string>
     <string name="label_defeat">ГЕРОЙ ПОЛІГ У КРИПТІ</string>
+    <string name="label_minimap_title">КАРТА КРИПТИ</string>
+    <string name="label_minimap_short">КАРТА</string>
+    <string name="action_minimap_expand">Розгорнути карту</string>
+    <string name="action_minimap_collapse">Зменшити карту</string>
+    <string name="action_minimap_minimize">Сховати карту</string>
 </resources>
