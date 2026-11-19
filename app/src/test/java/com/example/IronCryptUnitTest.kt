@@ -203,6 +203,28 @@ class IronCryptUnitTest {
     }
 
     @Test
+    fun enemiesUseSharedFlowFieldToRouteAroundRoomWalls() {
+        val sim = GameSimulation()
+        sim.resetRun(GamePhase.PLAYING)
+
+        // The Archive and Gearworks are separated by a wall. Their only connection
+        // is the doorway farther south, so a direct chase vector points into masonry.
+        val enemy = sim.enemies[4]
+        enemy.x = 52.5f
+        enemy.y = 8.5f
+        sim.playerX = 45.7f
+        sim.playerY = 8.5f
+
+        val startingY = enemy.y
+        repeat(20) {
+            sim.update(0.016f, QualityTier.HIGH)
+        }
+
+        // The shared route must first send this enemy south toward the real doorway.
+        assertTrue(enemy.y > startingY + 0.2f)
+    }
+
+    @Test
     fun floatingCombatTextSpawnsForHitsCleaveAndPotions() {
         val sim = GameSimulation()
         sim.resetRun(GamePhase.PLAYING)
