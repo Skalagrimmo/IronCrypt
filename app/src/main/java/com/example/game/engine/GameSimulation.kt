@@ -368,18 +368,11 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         addProp(PropKind.TORCH, 42.5f, 5.5f)
         addProp(PropKind.TORCH, 55.5f, 5.5f)
         addProp(PropKind.TORCH, 68.5f, 5.5f)
-        addProp(PropKind.TORCH, 29.5f, 19.5f)
-        addProp(PropKind.TORCH, 68.5f, 19.5f)
-
         // Furnace Nave and the lower wings.
         addProp(PropKind.TORCH, 27.5f, 24.5f)
         addProp(PropKind.TORCH, 48.5f, 24.5f)
-        addProp(PropKind.TORCH, 27.5f, 47.5f)
-        addProp(PropKind.TORCH, 48.5f, 47.5f)
         addProp(PropKind.TORCH, 29.5f, 66.5f)
-        addProp(PropKind.TORCH, 44.5f, 66.5f)
         addProp(PropKind.TORCH, 55.5f, 66.5f)
-        addProp(PropKind.TORCH, 68.5f, 66.5f)
 
         // Eastern progression route.
         addProp(PropKind.TORCH, 76.5f, 29.5f)
@@ -423,7 +416,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         spawnEnemy(EnemyKind.GARGOYLE, 56.5f, 9.5f)
         spawnEnemy(EnemyKind.SKELETON, 65.5f, 17.5f)
         spawnEnemy(EnemyKind.SKELETON, 34.5f, 30.5f)
-        spawnEnemy(EnemyKind.GARGOYLE, 46.5f, 44.5f)
+        spawnEnemy(EnemyKind.GARGOYLE, 43.5f, 44.5f)
         spawnEnemy(EnemyKind.AUTOMATON, 44.5f, 27.5f)
         spawnEnemy(EnemyKind.SKELETON, 31.5f, 63.5f)
         spawnEnemy(EnemyKind.GARGOYLE, 43.5f, 63.5f)
