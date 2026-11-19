@@ -8,6 +8,7 @@ import com.example.game.engine.AnimationCategory
 import com.example.game.engine.AnimationState
 import com.example.game.engine.ExynosQualityGovernor
 import com.example.game.engine.GameSimulation
+import com.example.game.engine.DungeonMap
 import com.example.game.engine.HeroAnimationController
 import com.example.game.engine.HeroAnimationState
 import com.example.game.model.AtlasBitmapStore
@@ -223,9 +224,9 @@ class DarkHeroAnimationAndAtlasTest {
         assertEquals(1, sim.heroAnimation.resolveCurrentClip(loadoutHorned).frameCount)
         assertEquals(0, sim.heroAnimation.resolveFrameIndex(sim.heroAnimation.resolveCurrentClip(loadoutHorned)))
 
-        // Move near Chronicler at (5.8, 9.2) and open dialogue
-        sim.playerX = 5.4f
-        sim.playerY = 9.8f
+        // Move near Chronicler in the relocated north-west Sanctuary.
+        sim.playerX = DungeonMap.CHRONICLER_X - 0.4f
+        sim.playerY = DungeonMap.CHRONICLER_Y + 0.6f
         sim.update(0.016f, QualityTier.HIGH)
         sim.interactQueued = true
         sim.update(0.016f, QualityTier.HIGH)
