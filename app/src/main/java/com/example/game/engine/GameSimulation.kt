@@ -156,6 +156,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         const val MAX_PARTICLES = 64
         const val MAX_FLOATING_TEXTS = 24
         const val VISION_RADIUS_TILES = 5.5f
+        private const val NAVIGATION_AGENT_RADIUS = 0.58f
+        private const val PLAYER_COLLISION_RADIUS = 0.28f
     }
 
     val enemies = Array(MAX_ENEMIES) { EnemyActor() }
@@ -259,11 +261,6 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
     private var navigationPlayerTileX = Int.MIN_VALUE
     private var navigationPlayerTileY = Int.MIN_VALUE
     private var navigationMapRevision = Int.MIN_VALUE
-
-    companion object {
-        private const val NAVIGATION_AGENT_RADIUS = 0.58f
-        private const val PLAYER_COLLISION_RADIUS = 0.28f
-    }
 
     init {
         resetRun(GamePhase.TITLE)
