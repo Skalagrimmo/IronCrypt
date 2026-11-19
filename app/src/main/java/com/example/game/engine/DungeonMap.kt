@@ -21,8 +21,8 @@ class DungeonMap {
         const val START_X = 8.5f
         const val START_Y = 36.0f
 
-        const val CHRONICLER_X = 12.5f
-        const val CHRONICLER_Y = 36.0f
+        const val CHRONICLER_X = 10.5f
+        const val CHRONICLER_Y = 12.5f
         const val LEVER_X = 37.5f
         const val LEVER_Y = 10.5f
 
