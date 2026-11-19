@@ -80,9 +80,7 @@ jobs:
           {
             echo "## IronCrypt debug APK"
             echo "**SHA-256:**"
-            printf '%s\\n' '\u0060\u0060\u0060'
             cat apk-sha256.txt
-            printf '%s\\n' '\u0060\u0060\u0060'
             echo "Compare with: sha256sum app-debug.apk"
           } >> "$GITHUB_STEP_SUMMARY"
 
