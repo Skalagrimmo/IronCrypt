@@ -4,6 +4,7 @@ import com.example.data.GraphicsSettings
 import com.example.game.engine.EnemyKind
 import com.example.game.engine.ExynosQualityGovernor
 import com.example.game.engine.GameSimulation
+import com.example.game.engine.DungeonMap
 import com.example.game.engine.PropKind
 import com.example.game.model.AffinityEffectiveness
 import com.example.game.model.ElementalAffinity
@@ -82,11 +83,11 @@ class IronCryptUnitTest {
         val initialAtk = sim.playerAtkTotal()
         assertFalse(sim.map.gateUnlocked)
 
-        // Unlock gate via map and verify collision opens at gate tiles (x=23, y=11)
-        assertFalse(sim.map.isWalkable(23.5f, 11.5f, 0.3f))
+        // The final Sanctum gate must block its six-tile passage until unlocked.
+        assertFalse(sim.map.isWalkable(DungeonMap.GATE_CENTER_X, DungeonMap.GATE_CENTER_Y, 0.3f))
         sim.map.unlockGate()
         assertTrue(sim.map.gateUnlocked)
-        assertTrue(sim.map.isWalkable(23.5f, 11.5f, 0.3f))
+        assertTrue(sim.map.isWalkable(DungeonMap.GATE_CENTER_X, DungeonMap.GATE_CENTER_Y, 0.3f))
 
         val axe = sim.equippedWeapon
         assertTrue(initialAtk > 0 && axe != null)
@@ -106,25 +107,25 @@ class IronCryptUnitTest {
         val gov = ExynosQualityGovernor()
         sim.resetRun(GamePhase.PLAYING)
 
-        // Starting tile area is discovered; far east boss sanctum is initially shrouded
-        assertTrue(sim.isTileDiscovered(4, 12))
-        assertFalse(sim.isTileDiscovered(31, 10))
+        // Starting tile area is discovered; the distant Sanctum remains shrouded.
+        assertTrue(sim.isTileDiscovered(DungeonMap.START_X.toInt(), DungeonMap.START_Y.toInt()))
+        assertFalse(sim.isTileDiscovered(85, 11))
 
         val initialSnap = sim.buildHudSnapshot(gov, 0).miniMap
         assertTrue(initialSnap.discoveredPercent > 0)
         assertTrue(initialSnap.markers.any { it.kind == MiniMapMarkerKind.LEVER && it.isPrimaryQuest })
         assertTrue(initialSnap.markers.any { it.kind == MiniMapMarkerKind.GATE_LOCKED && it.isPrimaryQuest })
         assertEquals(2, initialSnap.markers.count { it.kind == MiniMapMarkerKind.BOSS && !it.isPrimaryQuest })
-        // Chronicler at (5.8, 9.2) is within initial 5.5-tile vision radius
+        // Chronicler in the entrance chamber is within initial vision radius.
         assertTrue(initialSnap.markers.any { it.kind == MiniMapMarkerKind.NPC })
-        // Center corridor chest at (18.0, 4.2) is undiscovered initially
+        // The first optional treasure branch is outside the initial discovery radius.
         assertFalse(initialSnap.markers.any { it.kind == MiniMapMarkerKind.CHEST })
 
-        // Move hero near north-center chest & lever and reveal area
-        sim.playerX = 18.5f
-        sim.playerY = 4.5f
+        // Move hero to the Ashen Archive and reveal its treasure chamber.
+        sim.playerX = 65.5f
+        sim.playerY = 11.5f
         sim.revealAroundPlayer(force = false)
-        assertTrue(sim.isTileDiscovered(18, 4))
+        assertTrue(sim.isTileDiscovered(65, 11))
 
         val corridorSnap = sim.buildHudSnapshot(gov, 0).miniMap
         assertTrue(corridorSnap.markers.any { it.kind == MiniMapMarkerKind.CHEST })
@@ -139,6 +140,66 @@ class IronCryptUnitTest {
         assertFalse(unlockedSnap.markers.any { it.kind == MiniMapMarkerKind.LEVER })
         assertTrue(unlockedSnap.markers.any { it.kind == MiniMapMarkerKind.GATE_OPEN })
         assertEquals(2, unlockedSnap.markers.count { it.kind == MiniMapMarkerKind.BOSS && it.isPrimaryQuest })
+    }
+
+    @Test
+    fun expandedDungeonRoomsAreConnectedAndSanctumRemainsGateLocked() {
+        val map = DungeonMap()
+        assertEquals(96, DungeonMap.WIDTH)
+        assertEquals(72, DungeonMap.HEIGHT)
+
+        fun canReach(targetX: Int, targetY: Int): Boolean {
+            val visited = BooleanArray(DungeonMap.WIDTH * DungeonMap.HEIGHT)
+            val queue = IntArray(visited.size)
+            var head = 0
+            var tail = 0
+            val startX = DungeonMap.START_X.toInt()
+            val startY = DungeonMap.START_Y.toInt()
+            val startIndex = startY * DungeonMap.WIDTH + startX
+            queue[tail++] = startIndex
+            visited[startIndex] = true
+
+            while (head < tail) {
+                val current = queue[head++]
+                val x = current % DungeonMap.WIDTH
+                val y = current / DungeonMap.WIDTH
+                if (x == targetX && y == targetY) return true
+
+                for (direction in 0..3) {
+                    val nx = when (direction) {
+                        0 -> x + 1
+                        1 -> x - 1
+                        else -> x
+                    }
+                    val ny = when (direction) {
+                        2 -> y + 1
+                        3 -> y - 1
+                        else -> y
+                    }
+                    if (nx !in 0 until DungeonMap.WIDTH || ny !in 0 until DungeonMap.HEIGHT) continue
+                    val next = ny * DungeonMap.WIDTH + nx
+                    if (visited[next]) continue
+                    if (!map.isWalkable(nx + 0.5f, ny + 0.5f, 0.58f)) continue
+                    visited[next] = true
+                    queue[tail++] = next
+                }
+            }
+            return false
+        }
+
+        // Every major wing and the optional service loop must be reachable from the entrance.
+        assertTrue(canReach(10, 12)) // Chronicler's Sanctuary
+        assertTrue(canReach(35, 12)) // Gearworks
+        assertTrue(canReach(60, 13)) // Ashen Archive
+        assertTrue(canReach(40, 35)) // Furnace Nave
+        assertTrue(canReach(35, 60)) // Cinder Drainage
+        assertTrue(canReach(60, 36)) // Service Shaft
+        assertTrue(canReach(61, 60)) // Ossuary Crypt
+        assertTrue(canReach(84, 36)) // Crimson Antechamber
+        assertFalse(canReach(84, 12)) // Crimson Sanctum is locked
+
+        map.unlockGate()
+        assertTrue(canReach(84, 12))
     }
 
     @Test
