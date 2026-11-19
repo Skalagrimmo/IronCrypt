@@ -13,11 +13,11 @@ object DialogueScriptStore {
                     id = "chr_root",
                     speakerUk = "Хроніст Тіней",
                     portrait = SpriteId.NPC_SHADOW,
-                    textUk = "Крипта задихається від пари й проклятого заліза. Головна Брама зачинена — важіль сховано у північному крилі коридору.",
+                    textUk = "Крипта задихається від пари й проклятого заліза. Головна Брама зачинена — важіль сховано у північному крилі Gearworks.",
                     choices = listOf(
                         DialogueChoice("Хто охороняє Святилище?", nextNodeId = "chr_bosses"),
                         DialogueChoice("Чи є припаси для бою?", nextNodeId = "chr_supply"),
-                        DialogueChoice("Вирушаю до коридору", nextNodeId = null)
+                        DialogueChoice("Вирушаю до Gearworks", nextNodeId = null)
                     )
                 )
             } else {
