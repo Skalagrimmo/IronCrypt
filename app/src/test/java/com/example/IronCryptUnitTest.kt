@@ -116,10 +116,17 @@ class IronCryptUnitTest {
         assertTrue(initialSnap.markers.any { it.kind == MiniMapMarkerKind.LEVER && it.isPrimaryQuest })
         assertTrue(initialSnap.markers.any { it.kind == MiniMapMarkerKind.GATE_LOCKED && it.isPrimaryQuest })
         assertEquals(2, initialSnap.markers.count { it.kind == MiniMapMarkerKind.BOSS && !it.isPrimaryQuest })
-        // Chronicler in the entrance chamber is within initial vision radius.
-        assertTrue(initialSnap.markers.any { it.kind == MiniMapMarkerKind.NPC })
+        // The Chronicler is in a separate sanctuary and must remain hidden until explored.
+        assertFalse(initialSnap.markers.any { it.kind == MiniMapMarkerKind.NPC })
         // The first optional treasure branch is outside the initial discovery radius.
         assertFalse(initialSnap.markers.any { it.kind == MiniMapMarkerKind.CHEST })
+
+        // Explore the north-west sanctuary and reveal its NPC.
+        sim.playerX = DungeonMap.CHRONICLER_X
+        sim.playerY = DungeonMap.CHRONICLER_Y
+        sim.revealAroundPlayer(force = false)
+        assertTrue(sim.isTileDiscovered(10, 12))
+        assertTrue(sim.buildHudSnapshot(gov, 0).miniMap.markers.any { it.kind == MiniMapMarkerKind.NPC })
 
         // Move hero to the Ashen Archive and reveal its treasure chamber.
         sim.playerX = 65.5f
