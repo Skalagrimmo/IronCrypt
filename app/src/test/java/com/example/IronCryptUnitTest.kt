@@ -115,7 +115,7 @@ class IronCryptUnitTest {
         assertTrue(initialSnap.discoveredPercent > 0)
         assertTrue(initialSnap.markers.any { it.kind == MiniMapMarkerKind.LEVER && it.isPrimaryQuest })
         assertTrue(initialSnap.markers.any { it.kind == MiniMapMarkerKind.GATE_LOCKED && it.isPrimaryQuest })
-        assertEquals(2, initialSnap.markers.count { it.kind == MiniMapMarkerKind.BOSS && !it.isPrimaryQuest })
+        assertEquals(0, initialSnap.markers.count { it.kind == MiniMapMarkerKind.BOSS })
         // The Chronicler is in a separate sanctuary and must remain hidden until explored.
         assertFalse(initialSnap.markers.any { it.kind == MiniMapMarkerKind.NPC })
         // The first optional treasure branch is outside the initial discovery radius.
@@ -138,11 +138,18 @@ class IronCryptUnitTest {
         assertTrue(corridorSnap.markers.any { it.kind == MiniMapMarkerKind.CHEST })
         assertTrue(corridorSnap.discoveredPercent > initialSnap.discoveredPercent)
 
-        // Pull lever and unlock gate -> lever marker clears, gate switches to OPEN, bosses become primary
+        // Pull lever and unlock gate. The boss room itself remains hidden until entered.
         val leverIdx = sim.props.indexOfFirst { it.active && it.kind == PropKind.LEVER }
         sim.props[leverIdx].used = true
         sim.map.unlockGate()
+        assertEquals(0, sim.buildHudSnapshot(gov, 0).miniMap.markers.count {
+            it.kind == MiniMapMarkerKind.BOSS
+        })
 
+        // Enter the Sanctum to reveal both boss markers.
+        sim.playerX = 85.5f
+        sim.playerY = 12.5f
+        sim.revealAroundPlayer(force = false)
         val unlockedSnap = sim.buildHudSnapshot(gov, 0).miniMap
         assertFalse(unlockedSnap.markers.any { it.kind == MiniMapMarkerKind.LEVER })
         assertTrue(unlockedSnap.markers.any { it.kind == MiniMapMarkerKind.GATE_OPEN })
