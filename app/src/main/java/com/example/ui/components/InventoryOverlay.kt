@@ -689,7 +689,7 @@ private fun HeroConsumeDropZone(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Image(
-            bitmap = atlasStore.getSpriteBitmap(SpriteId.HERO_SOUTH),
+            bitmap = atlasStore.getHeroPortraitBitmap(hud.heroPortraitId),
             contentDescription = "Hero",
             filterQuality = FilterQuality.None,
             modifier = Modifier.size(34.dp)

@@ -108,11 +108,82 @@ enum class SoundCue {
     LEVER
 }
 
-enum class Direction {
-    SOUTH,
-    NORTH,
-    EAST,
-    WEST
+enum class Direction(
+    val rowIndex: Int,
+    val dirX: Float,
+    val dirY: Float,
+    val miniMapAngleDeg: Float
+) {
+    SOUTH(0, 0f, 1f, 90f),
+    SOUTH_EAST(1, 0.70710677f, 0.70710677f, 45f),
+    EAST(2, 1f, 0f, 0f),
+    NORTH_EAST(3, 0.70710677f, -0.70710677f, -45f),
+    NORTH(4, 0f, -1f, -90f),
+    NORTH_WEST(5, -0.70710677f, -0.70710677f, -135f),
+    WEST(6, -1f, 0f, 180f),
+    SOUTH_WEST(7, -0.70710677f, 0.70710677f, 135f);
+
+    companion object {
+        fun fromVector(dx: Float, dy: Float, fallback: Direction = SOUTH): Direction {
+            val magSq = dx * dx + dy * dy
+            if (magSq < 1e-4f) return fallback
+            // Clockwise angle from North (0, -1) in world coords where +X is East and +Y is South
+            val rad = kotlin.math.atan2(dx.toDouble(), (-dy).toDouble())
+            var deg = Math.toDegrees(rad)
+            if (deg < 0.0) deg += 360.0
+            val sector = ((kotlin.math.round(deg / 45.0).toInt() % 8) + 8) % 8
+            return when (sector) {
+                0 -> NORTH
+                1 -> NORTH_EAST
+                2 -> EAST
+                3 -> SOUTH_EAST
+                4 -> SOUTH
+                5 -> SOUTH_WEST
+                6 -> WEST
+                else -> NORTH_WEST
+            }
+        }
+    }
+}
+
+enum class HeroVisualProfile {
+    SHIELDED_DARK,
+    UNSHIELDED_DARK_HOODED,
+    UNSHIELDED_DARK_HORNED
+}
+
+data class HeroVisualLoadout(
+    val weaponId: String? = null,
+    val shieldId: String? = null,
+    val helmetId: String? = null,
+    val cloakId: String? = null
+) {
+    val hasShield: Boolean get() = shieldId == "kite_shield"
+    val hasShadowHoodLook: Boolean get() = cloakId == "shadow_hood" && helmetId == null
+
+    val visualProfile: HeroVisualProfile get() = when {
+        hasShield -> HeroVisualProfile.SHIELDED_DARK
+        hasShadowHoodLook -> HeroVisualProfile.UNSHIELDED_DARK_HOODED
+        else -> HeroVisualProfile.UNSHIELDED_DARK_HORNED
+    }
+
+    val portraitId: HeroPortraitId get() = when {
+        hasShield -> HeroPortraitId.PORTRAIT_SHIELDED_DARK
+        hasShadowHoodLook -> HeroPortraitId.PORTRAIT_UNSHIELDED_HOODED
+        else -> HeroPortraitId.PORTRAIT_UNSHIELDED_HORNED
+    }
+
+    val portraitMatchesLoadoutExactly: Boolean get() = when (portraitId) {
+        HeroPortraitId.PORTRAIT_SHIELDED_DARK ->
+            weaponId == "iron_sword" && shieldId == "kite_shield" &&
+                cloakId == null && (helmetId == null || helmetId == "knight_helmet")
+        HeroPortraitId.PORTRAIT_UNSHIELDED_HOODED ->
+            weaponId == "iron_sword" && shieldId == null &&
+                helmetId == null && cloakId == "shadow_hood"
+        HeroPortraitId.PORTRAIT_UNSHIELDED_HORNED ->
+            weaponId == "iron_sword" && shieldId == null &&
+                cloakId == null && (helmetId == null || helmetId == "knight_helmet")
+    }
 }
 
 enum class ItemType {
@@ -181,7 +252,16 @@ data class TelemetrySnapshot(
     val shaderLightingStrength: Float = 1.0f,
     val activeEntities: Int = 0,
     val activeParticles: Int = 0,
-    val drawCalls: Int = 0
+    val drawCalls: Int = 0,
+    val atlasDecodeMs: Float = 0f,
+    val atlasUploadCallMs: Float = 0f,
+    val atlasLoadTotalCpuMs: Float = 0f,
+    val atlasTextureMiB: Float = 4f,
+    val maxTextureSize: Int = 0,
+    val useLegacyHeroFallback: Boolean = false,
+    val cpuSubmitP95Ms: Float = 16.6f,
+    val cpuSubmitJankCount: Int = 0,
+    val sampleCount: Int = 0
 )
 
 enum class GamePhase {
@@ -269,6 +349,8 @@ data class HudUiState(
     val equippedShield: RpgItem? = null,
     val equippedHelmet: RpgItem? = null,
     val equippedCloak: RpgItem? = null,
+    val heroPortraitId: HeroPortraitId = HeroPortraitId.PORTRAIT_UNSHIELDED_HORNED,
+    val portraitMatchesLoadoutExactly: Boolean = true,
     val backpack: List<RpgItem> = emptyList(),
     val activeDialogue: ActiveDialogue? = null,
     val toastMessageUk: String? = null,

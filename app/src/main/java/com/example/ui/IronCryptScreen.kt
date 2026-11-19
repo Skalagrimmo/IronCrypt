@@ -44,10 +44,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -337,10 +339,13 @@ private fun TitleOverlay(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(
-                    bitmap = viewModel.atlasStore.getSpriteBitmap(SpriteId.HERO_SOUTH),
+                    painter = painterResource(R.drawable.dark_hero_title_portrait),
                     contentDescription = "Dark Hero",
-                    filterQuality = FilterQuality.None,
-                    modifier = Modifier.size(86.dp)
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(86.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.5.dp, MoltenBrass.copy(alpha = 0.8f), RoundedCornerShape(10.dp))
                 )
                 Spacer(Modifier.height(6.dp))
                 Image(

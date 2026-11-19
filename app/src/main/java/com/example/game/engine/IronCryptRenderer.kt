@@ -7,7 +7,9 @@ import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import android.opengl.Matrix
+import android.util.Log
 import com.example.R
+import com.example.game.model.AtlasId
 import com.example.game.model.Direction
 import com.example.game.model.GamePhase
 import com.example.game.model.RenderConfig
@@ -40,7 +42,12 @@ class IronCryptRenderer(
 
     private val batcher = GlSpriteBatcher(maxQuads = 1400)
     private var atlasTexId = 0
+    private var heroCoreTexId = 0
+    private var heroVariantsTexId = 0
     private var glowTexId = 0
+    private var useLegacyHeroFallback = false
+    private var maxTextureSize = 0
+    private val glQueryBuf = IntArray(1)
 
     private val projMatrix = FloatArray(16)
     private var viewWidth = 1280
@@ -49,6 +56,7 @@ class IronCryptRenderer(
 
     private var lastFrameNs = 0L
     private var lastHudSyncNs = 0L
+    private var lastPerfLogNs = 0L
     private var lastDispatchedScale: Float = -1f
 
     @Volatile
@@ -79,9 +87,79 @@ class IronCryptRenderer(
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
 
         batcher.initGl()
-        atlasTexId = loadAtlasTexture()
+
+        atlasTexId = 0
+        heroCoreTexId = 0
+        heroVariantsTexId = 0
+        glowTexId = 0
+        useLegacyHeroFallback = false
+
+        GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, glQueryBuf, 0)
+        maxTextureSize = glQueryBuf[0]
+        drainGlErrors()
+
+        val loadStartNs = System.nanoTime()
+        var totalDecodeNs = 0L
+        var totalUploadNs = 0L
+
+        val mainTiming = loadAtlasTexture(R.drawable.ironcrypt_atlas)
+        atlasTexId = mainTiming.texId
+        totalDecodeNs += mainTiming.decodeNs
+        totalUploadNs += mainTiming.uploadNs
         glowTexId = createSoftRadialTexture()
+
+        if (maxTextureSize >= 2048) {
+            val coreResult = loadAtlasTexture(AtlasId.HERO_CORE.drawableRes)
+            totalDecodeNs += coreResult.decodeNs
+            totalUploadNs += coreResult.uploadNs
+
+            val variantsResult = if (coreResult.success) {
+                loadAtlasTexture(AtlasId.HERO_VARIANTS.drawableRes)
+            } else {
+                TextureLoadResult(0, 0L, 0L, false, coreResult.errorCode)
+            }
+            totalDecodeNs += variantsResult.decodeNs
+            totalUploadNs += variantsResult.uploadNs
+
+            if (coreResult.success && variantsResult.success) {
+                heroCoreTexId = coreResult.texId
+                heroVariantsTexId = variantsResult.texId
+                useLegacyHeroFallback = false
+            } else {
+                releaseHeroTexturesOnFailure(coreResult.texId, variantsResult.texId)
+                useLegacyHeroFallback = true
+                Log.w(
+                    "IRONCRYPT_GL",
+                    "Dark Hero atlas upload failed (coreOk=${coreResult.success}, variantsOk=${variantsResult.success}, glErr=0x${Integer.toHexString(variantsResult.errorCode)}), activating legacy hero fallback"
+                )
+            }
+        } else {
+            useLegacyHeroFallback = true
+            Log.w(
+                "IRONCRYPT_GL",
+                "GL_MAX_TEXTURE_SIZE=$maxTextureSize < 2048, activating legacy hero fallback"
+            )
+        }
+
+        val totalLoadMs = (System.nanoTime() - loadStartNs) / 1_000_000f
+        val decodeMs = totalDecodeNs / 1_000_000f
+        val uploadMs = totalUploadNs / 1_000_000f
+        val texMiB = if (useLegacyHeroFallback) 4.0f else 36.0f
+        governor.updateAtlasTelemetry(
+            decodeMs = decodeMs,
+            uploadCallMs = uploadMs,
+            totalCpuMs = totalLoadMs,
+            textureMiB = texMiB,
+            glMaxTextureSize = maxTextureSize,
+            legacyFallback = useLegacyHeroFallback
+        )
+        Log.i(
+            "IRONCRYPT_GL",
+            "Atlases ready: glMax=$maxTextureSize fallback=$useLegacyHeroFallback texMiB=$texMiB decodeMs=$decodeMs uploadMs=$uploadMs totalMs=$totalLoadMs"
+        )
+
         lastFrameNs = System.nanoTime()
+        lastPerfLogNs = lastFrameNs
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -182,6 +260,19 @@ class IronCryptRenderer(
         if (workDoneNs - lastHudSyncNs >= 66_000_000L) {
             lastHudSyncNs = workDoneNs
             onHudUpdate()
+        }
+
+        // Emit periodic structured performance log for Mali-T830 / Exynos 7870 telemetry
+        if (workDoneNs - lastPerfLogNs >= 2_500_000_000L) {
+            lastPerfLogNs = workDoneNs
+            Log.i(
+                "IRONCRYPT_PERF",
+                governor.formatPerfReportLine(
+                    drawCalls = lastDrawCalls,
+                    entities = simulation.activeEntitiesRendered,
+                    particles = simulation.activeParticlesCount
+                )
+            )
         }
     }
 
@@ -340,6 +431,47 @@ class IronCryptRenderer(
 
     private fun drawHero() {
         val sim = simulation
+        if (!useLegacyHeroFallback && heroCoreTexId != 0 && heroVariantsTexId != 0) {
+            val rect = sim.resolveHeroFrameRect()
+            val wut = rect.worldUnitsPerTexel
+            if (wut > 0f) {
+                val targetTexId = when (rect.atlasId) {
+                    AtlasId.HERO_CORE -> heroCoreTexId
+                    AtlasId.HERO_VARIANTS -> heroVariantsTexId
+                    AtlasId.WORLD_MAIN -> atlasTexId
+                }
+                val pivotInTrimX = rect.footAnchorX - rect.trimOffsetX
+                val pivotInTrimY = rect.footAnchorY - rect.trimOffsetY
+                val drawW = rect.w * wut
+                val drawH = rect.h * wut
+                val drawX = sim.playerX - pivotInTrimX * wut
+                val drawY = sim.playerY - pivotInTrimY * wut
+                val isDead = sim.phase == GamePhase.DEFEAT
+                val alpha = if (!isDead && sim.invulnTimer > 0f && ((sim.globalTime * 20f).toInt() % 2 == 0)) {
+                    0.55f
+                } else 1f
+                val flash = if (isDead) 0f else sim.playerHitFlash
+
+                batcher.switchTextureIfNeeded(targetTexId)
+                batcher.drawSprite(
+                    x = drawX,
+                    y = drawY,
+                    w = drawW,
+                    h = drawH,
+                    rect = rect,
+                    r = 1f, g = 1f, b = 1f, a = alpha,
+                    flash = flash,
+                    flipX = false
+                )
+                batcher.switchTextureIfNeeded(atlasTexId)
+                return
+            }
+        }
+
+        drawLegacyHeroFallback(sim)
+    }
+
+    private fun drawLegacyHeroFallback(sim: GameSimulation) {
         if (sim.phase == GamePhase.DEFEAT) {
             batcher.drawSprite(
                 x = sim.playerX - 0.55f,
@@ -351,17 +483,24 @@ class IronCryptRenderer(
             return
         }
 
+        val facingWestHalf = sim.playerFacing == Direction.WEST ||
+            sim.playerFacing == Direction.NORTH_WEST ||
+            sim.playerFacing == Direction.SOUTH_WEST
+        val facingEastHalf = sim.playerFacing == Direction.EAST ||
+            sim.playerFacing == Direction.NORTH_EAST ||
+            sim.playerFacing == Direction.SOUTH_EAST
+
         val sprite: SpriteId
         var flipX = false
         if (sim.attackAnimTimer > 0f) {
             sprite = if (sim.attackAnimTimer > 0.11f) SpriteId.HERO_ATTACK_1 else SpriteId.HERO_ATTACK_2
-            flipX = sim.playerFacing == Direction.WEST
+            flipX = facingWestHalf
         } else {
-            sprite = when (sim.playerFacing) {
-                Direction.SOUTH -> SpriteId.HERO_SOUTH
-                Direction.NORTH -> SpriteId.HERO_NORTH
-                Direction.EAST -> SpriteId.HERO_EAST
-                Direction.WEST -> SpriteId.HERO_WEST
+            sprite = when {
+                facingEastHalf -> SpriteId.HERO_EAST
+                facingWestHalf -> SpriteId.HERO_WEST
+                sim.playerFacing == Direction.NORTH -> SpriteId.HERO_NORTH
+                else -> SpriteId.HERO_SOUTH
             }
         }
 
@@ -529,23 +668,92 @@ class IronCryptRenderer(
         return best
     }
 
-    private fun loadAtlasTexture(): Int {
-        val texIds = IntArray(1)
-        GLES20.glGenTextures(1, texIds, 0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texIds[0])
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+    private data class TextureLoadResult(
+        val texId: Int,
+        val decodeNs: Long,
+        val uploadNs: Long,
+        val success: Boolean,
+        val errorCode: Int = GLES20.GL_NO_ERROR
+    )
 
-        val opts = BitmapFactory.Options().apply {
-            inScaled = false
-            inPreferredConfig = Bitmap.Config.ARGB_8888
+    private fun drainGlErrors(): Int {
+        var lastErr = GLES20.GL_NO_ERROR
+        while (true) {
+            val err = GLES20.glGetError()
+            if (err == GLES20.GL_NO_ERROR) break
+            lastErr = err
         }
-        val bmp = BitmapFactory.decodeResource(context.resources, R.drawable.ironcrypt_atlas, opts)
-        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0)
-        bmp.recycle()
-        return texIds[0]
+        return lastErr
+    }
+
+    private fun releaseHeroTexturesOnFailure(vararg ids: Int) {
+        val toDelete = IntArray(ids.size)
+        var count = 0
+        for (id in ids) {
+            if (id != 0) {
+                toDelete[count++] = id
+            }
+        }
+        if (count > 0) {
+            GLES20.glDeleteTextures(count, toDelete, 0)
+        }
+        heroCoreTexId = 0
+        heroVariantsTexId = 0
+        drainGlErrors()
+    }
+
+    private fun loadAtlasTexture(drawableRes: Int): TextureLoadResult {
+        drainGlErrors()
+        var texId = 0
+        var decodeNs = 0L
+        var uploadNs = 0L
+        var bmp: Bitmap? = null
+        return try {
+            val opts = BitmapFactory.Options().apply {
+                inScaled = false
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val decStart = System.nanoTime()
+            bmp = BitmapFactory.decodeResource(context.resources, drawableRes, opts)
+            decodeNs = System.nanoTime() - decStart
+            if (bmp == null) {
+                return TextureLoadResult(0, decodeNs, 0L, false, GLES20.GL_OUT_OF_MEMORY)
+            }
+
+            val upStart = System.nanoTime()
+            val texIds = IntArray(1)
+            GLES20.glGenTextures(1, texIds, 0)
+            texId = texIds[0]
+            if (texId == 0) {
+                uploadNs = System.nanoTime() - upStart
+                val err = drainGlErrors().let { if (it == GLES20.GL_NO_ERROR) GLES20.GL_OUT_OF_MEMORY else it }
+                return TextureLoadResult(0, decodeNs, uploadNs, false, err)
+            }
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0)
+            uploadNs = System.nanoTime() - upStart
+
+            val glErr = drainGlErrors()
+            if (glErr != GLES20.GL_NO_ERROR) {
+                GLES20.glDeleteTextures(1, intArrayOf(texId), 0)
+                drainGlErrors()
+                TextureLoadResult(0, decodeNs, uploadNs, false, glErr)
+            } else {
+                TextureLoadResult(texId, decodeNs, uploadNs, true, GLES20.GL_NO_ERROR)
+            }
+        } catch (_: OutOfMemoryError) {
+            if (texId != 0) {
+                GLES20.glDeleteTextures(1, intArrayOf(texId), 0)
+            }
+            drainGlErrors()
+            TextureLoadResult(0, decodeNs, uploadNs, false, GLES20.GL_OUT_OF_MEMORY)
+        } finally {
+            bmp?.recycle()
+        }
     }
 
     private fun createSoftRadialTexture(): Int {

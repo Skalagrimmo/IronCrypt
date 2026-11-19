@@ -510,26 +510,62 @@ private fun PauseGraphicsTabContent(
         }
 
         item {
-            Text(
-                text = String.format(
-                    Locale.US,
-                    "FPS: %d  |  %.1f ms  |  Draw Calls: %d  |  Шейдер світла: %.0f%%  |  OBJ: %d  PRT: %d",
-                    hud.telemetry.fps,
-                    hud.telemetry.frameTimeMs,
-                    hud.telemetry.drawCalls,
-                    hud.telemetry.shaderLightingStrength * 100f,
-                    hud.telemetry.activeEntities,
-                    hud.telemetry.activeParticles
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = VitalEmerald,
+            val heroModeLabel = stringResource(
+                if (hud.telemetry.useLegacyHeroFallback) {
+                    R.string.label_hero_mode_legacy
+                } else {
+                    R.string.label_hero_mode_dark
+                }
+            )
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(6.dp))
                     .background(IronSurfaceHigh)
                     .border(1.dp, IronBorder, RoundedCornerShape(6.dp))
                     .padding(horizontal = 10.dp, vertical = 7.dp)
-            )
+                    .testTag("graphics_telemetry_card"),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = String.format(
+                        Locale.US,
+                        "FPS: %d  |  EMA: %.1f ms  |  P95: %.1f ms  |  Jank(>16.7): %d (%d)",
+                        hud.telemetry.fps,
+                        hud.telemetry.frameTimeMs,
+                        hud.telemetry.cpuSubmitP95Ms,
+                        hud.telemetry.cpuSubmitJankCount,
+                        hud.telemetry.sampleCount
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VitalEmerald
+                )
+                Text(
+                    text = String.format(
+                        Locale.US,
+                        "DC: %d  |  OBJ: %d  PRT: %d  |  Шейдер світла: %.0f%%",
+                        hud.telemetry.drawCalls,
+                        hud.telemetry.activeEntities,
+                        hud.telemetry.activeParticles,
+                        hud.telemetry.shaderLightingStrength * 100f
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AgedParchment
+                )
+                Text(
+                    text = String.format(
+                        Locale.US,
+                        "%s  |  GL Max: %d  |  Tex: %.0f MiB  |  Dec/Up: %.1f/%.1f ms",
+                        heroModeLabel,
+                        hud.telemetry.maxTextureSize,
+                        hud.telemetry.atlasTextureMiB,
+                        hud.telemetry.atlasDecodeMs,
+                        hud.telemetry.atlasUploadCallMs
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (hud.telemetry.useLegacyHeroFallback) MoltenBrass else SteelMist
+                )
+            }
         }
 
         item {

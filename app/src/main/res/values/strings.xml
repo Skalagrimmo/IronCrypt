@@ -40,4 +40,6 @@
     <string name="action_minimap_expand">Розгорнути карту</string>
     <string name="action_minimap_collapse">Зменшити карту</string>
     <string name="action_minimap_minimize">Сховати карту</string>
+    <string name="label_hero_mode_dark">Герой: Dark Hero (432 кадри)</string>
+    <string name="label_hero_mode_legacy">Герой: Legacy Fallback</string>
 </resources>

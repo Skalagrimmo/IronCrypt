@@ -3,21 +3,67 @@ package com.example.game.model
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Rect
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.example.R
+
+enum class AtlasId(
+    val width: Int,
+    val height: Int,
+    val drawableRes: Int
+) {
+    WORLD_MAIN(1024, 1024, R.drawable.ironcrypt_atlas),
+    HERO_CORE(2048, 2048, R.drawable.dark_hero_atlas_core),
+    HERO_VARIANTS(2048, 2048, R.drawable.dark_hero_atlas_variants)
+}
 
 data class SpriteRect(
     val x: Int,
     val y: Int,
     val w: Int,
-    val h: Int
+    val h: Int,
+    val atlasId: AtlasId = AtlasId.WORLD_MAIN,
+    val atlasWidth: Int = atlasId.width,
+    val atlasHeight: Int = atlasId.height,
+    val trimOffsetX: Int = 0,
+    val trimOffsetY: Int = 0,
+    val sourceW: Int = w,
+    val sourceH: Int = h,
+    val worldUnitsPerTexel: Float = 0f,
+    val footAnchorX: Float = sourceW * 0.5f,
+    val footAnchorY: Float = sourceH * 0.94f
 ) {
-    val u0: Float get() = x / 1024f
-    val v0: Float get() = y / 1024f
-    val u1: Float get() = (x + w) / 1024f
-    val v1: Float get() = (y + h) / 1024f
+    val u0: Float get() = x.toFloat() / atlasWidth.toFloat()
+    val v0: Float get() = y.toFloat() / atlasHeight.toFloat()
+    val u1: Float get() = (x + w).toFloat() / atlasWidth.toFloat()
+    val v1: Float get() = (y + h).toFloat() / atlasHeight.toFloat()
 }
+
+enum class HeroVisualAppearance {
+    HORNED_DARK_SHIELDED,
+    HORNED_DARK_UNSHIELDED,
+    SMOOTH_HOOD_DARK_UNSHIELDED,
+    SMOOTH_HOOD_CRIMSON_UNSHIELDED,
+    HORNED_CRIMSON_UNARMED,
+    HORNED_CRIMSON_UNSHIELDED
+}
+
+enum class HeroPortraitId {
+    PORTRAIT_SHIELDED_DARK,
+    PORTRAIT_UNSHIELDED_HOODED,
+    PORTRAIT_UNSHIELDED_HORNED
+}
+
+class AnimationClip(
+    val framesByDirection: Array<Array<SpriteRect>>,
+    val frameCount: Int,
+    val fps: Float,
+    val loop: Boolean,
+    val atlasId: AtlasId,
+    val visualAppearance: HeroVisualAppearance
+)
 
 enum class SpriteId(val rect: SpriteRect) {
     TILE_STONE_BRICK(SpriteRect(4, 4, 119, 120)),
@@ -76,15 +122,17 @@ enum class SpriteId(val rect: SpriteRect) {
 }
 
 class AtlasBitmapStore(context: Context) {
+    private val resources = context.resources
     private val atlasBitmap: Bitmap
     private val cache = mutableMapOf<SpriteId, ImageBitmap>()
+    private val portraitCache = mutableMapOf<HeroPortraitId, ImageBitmap>()
 
     init {
         val opts = BitmapFactory.Options().apply {
             inScaled = false
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
-        atlasBitmap = BitmapFactory.decodeResource(context.resources, R.drawable.ironcrypt_atlas, opts)
+        atlasBitmap = BitmapFactory.decodeResource(resources, R.drawable.ironcrypt_atlas, opts)
     }
 
     fun getSpriteBitmap(id: SpriteId): ImageBitmap {
@@ -93,4 +141,30 @@ class AtlasBitmapStore(context: Context) {
             Bitmap.createBitmap(atlasBitmap, r.x, r.y, r.w, r.h).asImageBitmap()
         }
     }
+
+    @Suppress("DEPRECATION")
+    fun getHeroPortraitBitmap(id: HeroPortraitId): ImageBitmap {
+        return portraitCache.getOrPut(id) {
+            val r = DarkHeroAtlasData.portraitRect(id)
+            val regionRect = Rect(r.x, r.y, r.x + r.w, r.y + r.h)
+            val opts = BitmapFactory.Options().apply {
+                inScaled = false
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val decoded = resources.openRawResource(r.atlasId.drawableRes).use { stream ->
+                val decoder = BitmapRegionDecoder.newInstance(stream, false)
+                try {
+                    decoder?.decodeRegion(regionRect, opts)
+                } finally {
+                    decoder?.recycle()
+                }
+            }
+            if (decoded != null) {
+                decoded.asImageBitmap()
+            } else {
+                getSpriteBitmap(SpriteId.HERO_SOUTH)
+            }
+        }
+    }
 }
+

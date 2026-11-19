@@ -74,6 +74,7 @@ class GlSpriteBatcher(private val maxQuads: Int = 1400) {
         .asShortBuffer()
 
     private var quadCount = 0
+    private var currentTextureId = 0
     var drawCallsThisFrame = 0
         private set
 
@@ -129,6 +130,7 @@ class GlSpriteBatcher(private val maxQuads: Int = 1400) {
     fun beginFrame(mvp: FloatArray) {
         mvpMatrix = mvp
         drawCallsThisFrame = 0
+        currentTextureId = 0
     }
 
     fun beginBatch(
@@ -139,6 +141,7 @@ class GlSpriteBatcher(private val maxQuads: Int = 1400) {
         warmthTint: Float = 1f
     ) {
         quadCount = 0
+        currentTextureId = textureId
         GLES20.glUseProgram(programId)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
@@ -153,6 +156,13 @@ class GlSpriteBatcher(private val maxQuads: Int = 1400) {
         } else {
             GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         }
+    }
+
+    fun switchTextureIfNeeded(textureId: Int) {
+        if (textureId == 0 || textureId == currentTextureId) return
+        flush()
+        currentTextureId = textureId
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
     }
 
     fun drawSprite(

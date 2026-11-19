@@ -57,7 +57,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.R
-import com.example.game.model.Direction
 import com.example.game.model.MiniMapDisplayMode
 import com.example.game.model.MiniMapMarker
 import com.example.game.model.MiniMapMarkerKind
@@ -382,12 +381,7 @@ private fun DrawScope.drawMiniMap(
         center = Offset(px, py)
     )
 
-    val angleDeg = when (miniMap.playerFacing) {
-        Direction.EAST -> 0f
-        Direction.SOUTH -> 90f
-        Direction.WEST -> 180f
-        Direction.NORTH -> -90f
-    }
+    val angleDeg = miniMap.playerFacing.miniMapAngleDeg
     rotate(degrees = angleDeg, pivot = Offset(px, py)) {
         val path = Path().apply {
             moveTo(px + playerSize * 1.15f, py)

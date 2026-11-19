@@ -74,7 +74,7 @@ fun HudTopBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Image(
-                    bitmap = atlasStore.getSpriteBitmap(SpriteId.HERO_SOUTH),
+                    bitmap = atlasStore.getHeroPortraitBitmap(hud.heroPortraitId),
                     contentDescription = "Dark Hero",
                     filterQuality = FilterQuality.None,
                     modifier = Modifier.size(34.dp)

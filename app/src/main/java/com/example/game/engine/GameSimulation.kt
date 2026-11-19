@@ -13,6 +13,7 @@ import com.example.game.model.QualityTier
 import com.example.game.model.RenderConfig
 import com.example.game.model.RpgItem
 import com.example.game.model.GameSaveSnapshot
+import com.example.game.model.HeroVisualLoadout
 import com.example.game.model.MiniMapMarker
 import com.example.game.model.MiniMapMarkerKind
 import com.example.game.model.MiniMapState
@@ -22,6 +23,7 @@ import com.example.game.model.SavedPickupState
 import com.example.game.model.SavedPropState
 import com.example.game.model.SoundCue
 import com.example.game.model.SpriteId
+import com.example.game.model.SpriteRect
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -219,6 +221,10 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
     var equippedShield: RpgItem? = null
     var equippedHelmet: RpgItem? = null
     var equippedCloak: RpgItem? = null
+    private var cachedVisualLoadout = HeroVisualLoadout(weaponId = "iron_sword")
+    val heroAnimation = HeroAnimationController()
+    private var nextAnimationTriggerSerial = 1L
+
     val backpack = mutableListOf<RpgItem>()
     var activeDialogue: ActiveDialogue? = null
     var pendingToastUk: String? = null
@@ -280,6 +286,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             equippedShield = null
             equippedHelmet = null
             equippedCloak = null
+            refreshVisualLoadout()
+            heroAnimation.reset(playerFacing)
             backpack.clear()
             backpack.add(itemCatalog["crimson_potion"]!!.copy(count = 2))
 
@@ -301,6 +309,19 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             revealAroundPlayer(force = true)
         }
     }
+
+    private fun refreshVisualLoadout() {
+        cachedVisualLoadout = HeroVisualLoadout(
+            weaponId = equippedWeapon?.id,
+            shieldId = equippedShield?.id,
+            helmetId = equippedHelmet?.id,
+            cloakId = equippedCloak?.id
+        )
+    }
+
+    fun currentVisualLoadout(): HeroVisualLoadout = cachedVisualLoadout
+
+    fun resolveHeroFrameRect(): SpriteRect = heroAnimation.resolveFrame(cachedVisualLoadout, playerFacing)
 
     private fun populateDungeon() {
         var pi = 0
@@ -445,6 +466,16 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             dashQueued = false
             interactQueued = false
             potionQueued = false
+            if (!isPausedForOverlay && (activeDialogue != null || phase == GamePhase.DEFEAT)) {
+                synchronized(stateLock) {
+                    heroAnimation.updateVisualOnly(
+                        dt = dt,
+                        hasDialogue = phase == GamePhase.PLAYING && activeDialogue != null,
+                        isDefeat = phase == GamePhase.DEFEAT,
+                        liveFacing = playerFacing
+                    )
+                }
+            }
             return
         }
 
@@ -479,6 +510,15 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             usePotionInternal()
         }
 
+        val rawJoyMag = sqrt(joyX * joyX + joyY * joyY)
+        heroAnimation.updateGameplay(
+            dt = dt,
+            joyMag = if (dashTimer > 0f) 0f else rawJoyMag,
+            hasDialogue = activeDialogue != null,
+            isDefeat = phase == GamePhase.DEFEAT,
+            liveFacing = playerFacing
+        )
+
         // Handle Dash
         if (dashQueued) {
             dashQueued = false
@@ -491,14 +531,17 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 if (mag > 0.15f) {
                     dashDirX = joyX / mag
                     dashDirY = joyY / mag
+                    playerFacing = Direction.fromVector(dashDirX, dashDirY, playerFacing)
                 } else {
-                    dashDirX = when (playerFacing) {
-                        Direction.EAST -> 1f; Direction.WEST -> -1f; else -> 0f
-                    }
-                    dashDirY = when (playerFacing) {
-                        Direction.SOUTH -> 1f; Direction.NORTH -> -1f; else -> 0f
-                    }
+                    dashDirX = playerFacing.dirX
+                    dashDirY = playerFacing.dirY
                 }
+                heroAnimation.triggerConfirmed(
+                    state = HeroAnimationState.DASH,
+                    triggerSerial = nextAnimationTriggerSerial++,
+                    durationSec = 0.22f,
+                    direction = playerFacing
+                )
                 spawnParticleBurst(playerX, playerY + 0.2f, 6, 0.7f, 0.75f, 0.85f, config)
                 queueSoundCue(SoundCue.DASH)
             }
@@ -518,10 +561,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 val ny = jy / mag
                 moveWithCollision(nx * spd * dt, ny * spd * dt, 0.30f)
                 walkAnimTime += dt * 9f
-                playerFacing = if (abs(nx) > abs(ny)) {
-                    if (nx > 0f) Direction.EAST else Direction.WEST
-                } else {
-                    if (ny > 0f) Direction.SOUTH else Direction.NORTH
+                if (!heroAnimation.isFacingLocked) {
+                    playerFacing = Direction.fromVector(nx, ny, playerFacing)
                 }
             }
         }
@@ -532,6 +573,18 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             if (attackCooldown <= 0f) {
                 attackCooldown = 0.30f
                 attackAnimTimer = 0.22f
+                if (dashTimer <= 0f && rawJoyMag > 0.08f &&
+                    (!heroAnimation.isFacingLocked || HeroAnimationState.ATTACK.priority >= heroAnimation.currentState.priority)
+                ) {
+                    playerFacing = Direction.fromVector(joyX / rawJoyMag, joyY / rawJoyMag, playerFacing)
+                }
+                val activeAttackFacing = heroAnimation.resolveActiveDirection(playerFacing)
+                heroAnimation.triggerConfirmed(
+                    state = HeroAnimationState.ATTACK,
+                    triggerSerial = nextAnimationTriggerSerial++,
+                    durationSec = 0.22f,
+                    direction = activeAttackFacing
+                )
                 queueSoundCue(SoundCue.SWING)
                 performMeleeStrike(
                     radius = 1.65f,
@@ -551,6 +604,18 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 playerStamina -= 25f
                 cleaveCooldown = 2.4f
                 attackAnimTimer = 0.28f
+                if (dashTimer <= 0f && rawJoyMag > 0.08f &&
+                    (!heroAnimation.isFacingLocked || HeroAnimationState.CLEAVE.priority >= heroAnimation.currentState.priority)
+                ) {
+                    playerFacing = Direction.fromVector(joyX / rawJoyMag, joyY / rawJoyMag, playerFacing)
+                }
+                val activeCleaveFacing = heroAnimation.resolveActiveDirection(playerFacing)
+                heroAnimation.triggerConfirmed(
+                    state = HeroAnimationState.CLEAVE,
+                    triggerSerial = nextAnimationTriggerSerial++,
+                    durationSec = 0.28f,
+                    direction = activeCleaveFacing
+                )
                 queueSoundCue(SoundCue.CLEAVE)
                 performMeleeStrike(
                     radius = 2.25f,
@@ -608,12 +673,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         isCleave: Boolean,
         config: RenderConfig
     ) {
-        val fx = when (playerFacing) {
-            Direction.EAST -> 1f; Direction.WEST -> -1f; else -> 0f
-        }
-        val fy = when (playerFacing) {
-            Direction.SOUTH -> 1f; Direction.NORTH -> -1f; else -> 0f
-        }
+        val fx = playerFacing.dirX
+        val fy = playerFacing.dirY
 
         val affinity = resolveAttackAffinity(isCleave)
         val critChance = (playerCritChance() + if (isCleave) 0.20f else 0f).coerceIn(0f, 0.85f)
@@ -841,6 +902,20 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         }
         if (playerHp <= 0) {
             phase = GamePhase.DEFEAT
+            heroAnimation.triggerConfirmed(
+                state = HeroAnimationState.DEAD,
+                triggerSerial = nextAnimationTriggerSerial++,
+                durationSec = 0.50f,
+                direction = heroAnimation.resolveActiveDirection(playerFacing)
+            )
+        } else if (mitigated > 0) {
+            val hurtDir = heroAnimation.resolveActiveDirection(playerFacing)
+            heroAnimation.triggerConfirmed(
+                state = HeroAnimationState.HURT,
+                triggerSerial = nextAnimationTriggerSerial++,
+                durationSec = 0.28f,
+                direction = hurtDir
+            )
         }
     }
 
@@ -985,12 +1060,30 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         when (p.kind) {
             PropKind.CHEST -> if (!p.used) {
                 p.used = true
+                if (!heroAnimation.isFacingLocked || HeroAnimationState.INTERACT.priority >= heroAnimation.currentState.priority) {
+                    playerFacing = Direction.fromVector(p.x - playerX, p.y - playerY, playerFacing)
+                }
+                heroAnimation.triggerConfirmed(
+                    state = HeroAnimationState.INTERACT,
+                    triggerSerial = nextAnimationTriggerSerial++,
+                    durationSec = 0.40f,
+                    direction = heroAnimation.resolveActiveDirection(playerFacing)
+                )
                 collectItem(p.lootId)
                 queueSoundCue(SoundCue.CHEST)
                 spawnParticleBurst(p.x, p.y, 12, 0.95f, 0.8f, 0.25f, config)
             }
             PropKind.LEVER -> if (!p.used) {
                 p.used = true
+                if (!heroAnimation.isFacingLocked || HeroAnimationState.INTERACT.priority >= heroAnimation.currentState.priority) {
+                    playerFacing = Direction.fromVector(p.x - playerX, p.y - playerY, playerFacing)
+                }
+                heroAnimation.triggerConfirmed(
+                    state = HeroAnimationState.INTERACT,
+                    triggerSerial = nextAnimationTriggerSerial++,
+                    durationSec = 0.40f,
+                    direction = heroAnimation.resolveActiveDirection(playerFacing)
+                )
                 map.unlockGate()
                 cachedMiniMapTerrain = map.encodeMiniMapTerrain()
                 queueSoundCue(SoundCue.LEVER)
@@ -998,16 +1091,24 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 spawnParticleBurst(p.x, p.y, 10, 0.9f, 0.6f, 0.2f, config)
             }
             PropKind.NPC_CHRONICLER -> {
+                if (!heroAnimation.isFacingLocked) {
+                    playerFacing = Direction.fromVector(p.x - playerX, p.y - playerY, playerFacing)
+                }
                 activeDialogue = ActiveDialogue(
                     "chronicler",
                     DialogueScriptStore.getStartNode("chronicler", map.gateUnlocked)
                 )
+                heroAnimation.updateVisualOnly(0f, hasDialogue = true, isDefeat = false, liveFacing = playerFacing)
             }
             PropKind.NPC_CULTIST -> {
+                if (!heroAnimation.isFacingLocked) {
+                    playerFacing = Direction.fromVector(p.x - playerX, p.y - playerY, playerFacing)
+                }
                 activeDialogue = ActiveDialogue(
                     "cultist",
                     DialogueScriptStore.getStartNode("cultist", map.gateUnlocked)
                 )
+                heroAnimation.updateVisualOnly(0f, hasDialogue = true, isDefeat = false, liveFacing = playerFacing)
             }
             else -> Unit
         }
@@ -1079,6 +1180,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 }
                 ItemType.GOLD -> Unit
             }
+            refreshVisualLoadout()
         }
     }
 
@@ -1095,6 +1197,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 backpack.add(removed.copy(count = 1))
                 showToast("Знято: ${removed.nameUk}")
             }
+            refreshVisualLoadout()
         }
     }
 
@@ -1255,6 +1358,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             equippedShield = snapshot.equippedShieldId?.let { itemCatalog[it] }
             equippedHelmet = snapshot.equippedHelmetId?.let { itemCatalog[it] }
             equippedCloak = snapshot.equippedCloakId?.let { itemCatalog[it] }
+            refreshVisualLoadout()
+            heroAnimation.reset(playerFacing)
 
             backpack.clear()
             snapshot.backpack.forEach { stack ->
@@ -1351,6 +1456,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 equippedShield = equippedShield,
                 equippedHelmet = equippedHelmet,
                 equippedCloak = equippedCloak,
+                heroPortraitId = cachedVisualLoadout.portraitId,
+                portraitMatchesLoadoutExactly = cachedVisualLoadout.portraitMatchesLoadoutExactly,
                 backpack = backpack.toList(),
                 activeDialogue = activeDialogue,
                 toastMessageUk = pendingToastUk,
@@ -1364,7 +1471,16 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                     shaderLightingStrength = cfg.shaderLightingStrength,
                     activeEntities = activeEntitiesRendered,
                     activeParticles = activeParticlesCount,
-                    drawCalls = drawCalls
+                    drawCalls = drawCalls,
+                    atlasDecodeMs = governor.atlasDecodeMs,
+                    atlasUploadCallMs = governor.atlasUploadCallMs,
+                    atlasLoadTotalCpuMs = governor.atlasLoadTotalCpuMs,
+                    atlasTextureMiB = governor.atlasTextureMiB,
+                    maxTextureSize = governor.maxTextureSize,
+                    useLegacyHeroFallback = governor.useLegacyHeroFallback,
+                    cpuSubmitP95Ms = governor.computeCpuSubmitP95Ms(),
+                    cpuSubmitJankCount = governor.cpuSubmitJankCount,
+                    sampleCount = governor.sampleCount
                 ),
                 miniMap = buildMiniMapSnapshot()
             )
