@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.GameSaveRepository
 import com.example.data.QualityPreferencesRepository
 import com.example.game.engine.GameSimulation
+import com.example.game.engine.DungeonMap
 import com.example.game.engine.PropKind
 import com.example.game.model.Direction
 import com.example.game.model.GamePhase
@@ -94,10 +95,10 @@ class SaveLoadPersistenceRobolectricTest {
         assertEquals(7, target.kills)
         assertEquals(1, target.bossesDefeated)
         assertTrue(target.map.gateUnlocked)
-        assertTrue(target.map.isWalkable(23.5f, 11.5f, 0.3f))
-        assertTrue(target.isTileDiscovered(4, 12))
+        assertTrue(target.map.isWalkable(DungeonMap.GATE_CENTER_X, DungeonMap.GATE_CENTER_Y, 0.3f))
+        assertTrue(target.isTileDiscovered(18, 11))
         assertTrue(target.isTileDiscovered(19, 11))
-        assertFalse(target.isTileDiscovered(33, 20))
+        assertFalse(target.isTileDiscovered(65, 60))
         assertEquals("shadow_hood", target.equippedCloak?.id)
         val reExported = target.exportSnapshot(savedAtMs = 1_700_000_123_000L)
         assertTrue(reExported.giftedPotion)
