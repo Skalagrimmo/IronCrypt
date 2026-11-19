@@ -308,17 +308,17 @@ data class FloatingTextItem(
 )
 
 data class FloatingTextFrameSnapshot(
-    val camX: Float = 4.5f,
-    val camY: Float = 12.0f,
+    val camX: Float = 8.5f,
+    val camY: Float = 36.0f,
     val visibleWorldHeight: Float = 9.2f,
     val items: List<FloatingTextItem> = emptyList()
 )
 
 data class MiniMapState(
-    val mapWidth: Int = 36,
-    val mapHeight: Int = 24,
-    val playerX: Float = 4.5f,
-    val playerY: Float = 12.0f,
+    val mapWidth: Int = 96,
+    val mapHeight: Int = 72,
+    val playerX: Float = 8.5f,
+    val playerY: Float = 36.0f,
     val playerFacing: Direction = Direction.EAST,
     val terrainLayout: String = "",
     val discoveredMask: String = "",
