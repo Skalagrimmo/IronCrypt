@@ -1741,7 +1741,10 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             )
 
             for (e in enemies) {
-                if (e.active && e.kind.isBoss) {
+                if (!e.active || !e.kind.isBoss) continue
+                val bossTileX = floor(e.x.toDouble()).toInt()
+                val bossTileY = floor(e.y.toDouble()).toInt()
+                if (isTileDiscovered(bossTileX, bossTileY)) {
                     add(MiniMapMarker(e.x, e.y, MiniMapMarkerKind.BOSS, isPrimaryQuest = map.gateUnlocked))
                 }
             }
