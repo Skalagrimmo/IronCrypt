@@ -67,6 +67,7 @@ import com.example.ui.components.CombatActionPad
 import com.example.ui.components.DialogueOverlay
 import com.example.ui.components.FloatingCombatTextOverlay
 import com.example.ui.components.HudTopBar
+import com.example.ui.components.HudTelemetryOverlay
 import com.example.ui.components.InventoryOverlay
 import com.example.ui.components.MiniMapOverlay
 import com.example.ui.components.UnifiedPauseMenu
@@ -182,10 +183,8 @@ fun IronCryptScreen(viewModel: GameViewModel) {
                 HudTopBar(
                     hud = hud,
                     atlasStore = viewModel.atlasStore,
-                    showTelemetry = settings.showTelemetry,
                     onOpenInventory = viewModel::openInventory,
                     onOpenPauseMenu = { viewModel.openPauseMenu(PauseMenuTab.GAME) },
-                    onOpenGraphicsTab = { viewModel.openPauseMenu(PauseMenuTab.GRAPHICS) },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .onSizeChanged { hudTopBarHeightPx = it.height }
@@ -244,6 +243,16 @@ fun IronCryptScreen(viewModel: GameViewModel) {
                         .align(Alignment.BottomEnd)
                         .padding(end = 4.dp, bottom = 4.dp)
                 )
+
+                if (settings.showTelemetry) {
+                    HudTelemetryOverlay(
+                        hud = hud,
+                        onOpenGraphicsTab = { viewModel.openPauseMenu(PauseMenuTab.GRAPHICS) },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 6.dp)
+                    )
+                }
             }
         }
 
