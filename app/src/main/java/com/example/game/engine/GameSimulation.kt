@@ -1484,7 +1484,9 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             }
             val savedPlayerX = snapshot.playerX
             val savedPlayerY = snapshot.playerY
-            if (map.isWalkable(savedPlayerX, savedPlayerY, PLAYER_COLLISION_RADIUS)) {
+            if (snapshot.version >= 2 &&
+                map.isWalkable(savedPlayerX, savedPlayerY, PLAYER_COLLISION_RADIUS)
+            ) {
                 playerX = savedPlayerX
                 playerY = savedPlayerY
             } else {
@@ -1522,33 +1524,52 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 }
             }
 
-            snapshot.props.forEach { sp ->
-                if (sp.index in props.indices) {
-                    props[sp.index].active = sp.active
-                    props[sp.index].used = sp.used
+            // Version 1 stored indices for the old compact map population. Its props and
+            // enemies no longer correspond to the expanded world's placement, so keep the
+            // new deterministic population and migrate only player progression/inventory.
+            if (snapshot.version >= 2) {
+                snapshot.props.forEach { sp ->
+                    if (sp.index in props.indices) {
+                        props[sp.index].active = sp.active
+                        props[sp.index].used = sp.used
+                    }
                 }
-            }
 
-            snapshot.enemies.forEach { se ->
-                if (se.index in enemies.indices) {
-                    val target = enemies[se.index]
-                    target.active = se.active
-                    target.hp = se.hp
-                    target.x = se.x
-                    target.y = se.y
-                    target.facing = se.facing
-                    target.attackWindup = 0f
-                    target.hitFlash = 0f
+                snapshot.enemies.forEach { se ->
+                    if (se.index in enemies.indices) {
+                        val target = enemies[se.index]
+                        if (se.active && !map.isWalkable(se.x, se.y, target.kind.radius)) {
+                            target.active = false
+                        } else {
+                            target.active = se.active
+                            target.hp = se.hp
+                            target.x = se.x
+                            target.y = se.y
+                            target.facing = se.facing
+                            target.attackWindup = 0f
+                            target.hitFlash = 0f
+                        }
+                    }
                 }
-            }
 
-            pickups.forEach { it.active = false }
-            snapshot.pickups.forEachIndexed { idx, sp ->
-                if (idx < pickups.size) {
-                    pickups[idx].active = true
-                    pickups[idx].x = sp.x
-                    pickups[idx].y = sp.y
-                    pickups[idx].itemId = sp.itemId
+                pickups.forEach { it.active = false }
+                snapshot.pickups.forEachIndexed { idx, sp ->
+                    if (idx < pickups.size && map.isWalkable(sp.x, sp.y, 0.12f)) {
+                        pickups[idx].active = true
+                        pickups[idx].x = sp.x
+                        pickups[idx].y = sp.y
+                        pickups[idx].itemId = sp.itemId
+                    }
+                }
+            } else {
+                var legacyBossesToMarkDefeated = bossesDefeated
+                for (enemy in enemies) {
+                    if (legacyBossesToMarkDefeated <= 0) break
+                    if (enemy.active && enemy.kind.isBoss) {
+                        enemy.active = false
+                        enemy.hp = 0
+                        legacyBossesToMarkDefeated--
+                    }
                 }
             }
 
