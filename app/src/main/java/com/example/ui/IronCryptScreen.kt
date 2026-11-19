@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -66,6 +67,7 @@ import com.example.ui.components.CombatActionPad
 import com.example.ui.components.DialogueOverlay
 import com.example.ui.components.FloatingCombatTextOverlay
 import com.example.ui.components.HudTopBar
+import com.example.ui.components.HudTelemetryOverlay
 import com.example.ui.components.InventoryOverlay
 import com.example.ui.components.MiniMapOverlay
 import com.example.ui.components.UnifiedPauseMenu
@@ -94,6 +96,12 @@ fun IronCryptScreen(viewModel: GameViewModel) {
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    val density = LocalDensity.current
+    var hudTopBarHeightPx by remember { mutableIntStateOf(0) }
+    val miniMapTopPadding = with(density) {
+        maxOf(56.dp, hudTopBarHeightPx.toDp() + 12.dp)
+    }
 
     var surfacePxW by remember { mutableIntStateOf(0) }
     var surfacePxH by remember { mutableIntStateOf(0) }
@@ -175,11 +183,11 @@ fun IronCryptScreen(viewModel: GameViewModel) {
                 HudTopBar(
                     hud = hud,
                     atlasStore = viewModel.atlasStore,
-                    showTelemetry = settings.showTelemetry,
                     onOpenInventory = viewModel::openInventory,
                     onOpenPauseMenu = { viewModel.openPauseMenu(PauseMenuTab.GAME) },
-                    onOpenGraphicsTab = { viewModel.openPauseMenu(PauseMenuTab.GRAPHICS) },
-                    modifier = Modifier.align(Alignment.TopCenter)
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .onSizeChanged { hudTopBarHeightPx = it.height }
                 )
 
                 AnimatedVisibility(
@@ -217,7 +225,7 @@ fun IronCryptScreen(viewModel: GameViewModel) {
                     onRestore = viewModel::restoreMiniMap,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 56.dp)
+                        .padding(top = miniMapTopPadding)
                 )
 
                 CombatActionPad(
@@ -235,6 +243,16 @@ fun IronCryptScreen(viewModel: GameViewModel) {
                         .align(Alignment.BottomEnd)
                         .padding(end = 4.dp, bottom = 4.dp)
                 )
+
+                if (settings.showTelemetry) {
+                    HudTelemetryOverlay(
+                        hud = hud,
+                        onOpenGraphicsTab = { viewModel.openPauseMenu(PauseMenuTab.GRAPHICS) },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 6.dp)
+                    )
+                }
             }
         }
 

@@ -156,6 +156,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         const val MAX_PARTICLES = 64
         const val MAX_FLOATING_TEXTS = 24
         const val VISION_RADIUS_TILES = 5.5f
+        private const val NAVIGATION_AGENT_RADIUS = 0.58f
+        private const val PLAYER_COLLISION_RADIUS = 0.28f
     }
 
     val enemies = Array(MAX_ENEMIES) { EnemyActor() }
@@ -185,8 +187,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
 
     // Player state
     var phase = GamePhase.TITLE
-    var playerX = 4.5f
-    var playerY = 12.0f
+    var playerX = DungeonMap.START_X
+    var playerY = DungeonMap.START_Y
     var playerFacing = Direction.EAST
     var playerHp = 120
     var playerMaxHp = 120
@@ -211,8 +213,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
     var screenShakeStrength = 0f
 
     // Camera state
-    var camX = 4.5f
-    var camY = 12.0f
+    var camX = DungeonMap.START_X
+    var camY = DungeonMap.START_Y
 
     // RPG Equipment & Inventory (mutated under simulationLock when opened)
     val stateLock = Any()
@@ -250,6 +252,16 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
 
     private var rngState = 0x5A17C931
 
+    // Shared, preallocated four-way flow field. Rebuilt only when the player changes tile
+    // or map passability changes (for example, when the Sanctum gate opens).
+    private val navigationDistance = IntArray(DungeonMap.WIDTH * DungeonMap.HEIGHT)
+    private val navigationStepX = ByteArray(DungeonMap.WIDTH * DungeonMap.HEIGHT)
+    private val navigationStepY = ByteArray(DungeonMap.WIDTH * DungeonMap.HEIGHT)
+    private val navigationQueue = IntArray(DungeonMap.WIDTH * DungeonMap.HEIGHT)
+    private var navigationPlayerTileX = Int.MIN_VALUE
+    private var navigationPlayerTileY = Int.MIN_VALUE
+    private var navigationMapRevision = Int.MIN_VALUE
+
     init {
         resetRun(GamePhase.TITLE)
     }
@@ -257,9 +269,12 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
     fun resetRun(startPhase: GamePhase = GamePhase.PLAYING) {
         synchronized(stateLock) {
             map.reset()
+            navigationPlayerTileX = Int.MIN_VALUE
+            navigationPlayerTileY = Int.MIN_VALUE
+            navigationMapRevision = Int.MIN_VALUE
             phase = startPhase
-            playerX = 4.5f
-            playerY = 12.0f
+            playerX = DungeonMap.START_X
+            playerY = DungeonMap.START_Y
             camX = playerX
             camY = playerY
             playerFacing = Direction.EAST
@@ -340,52 +355,78 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             pi++
         }
 
-        // Torches along walls (drive cheap per-vertex warm torch lighting)
-        addProp(PropKind.TORCH, 3.5f, 2.2f)
-        addProp(PropKind.TORCH, 10.5f, 2.2f)
-        addProp(PropKind.TORCH, 15.5f, 2.2f)
-        addProp(PropKind.TORCH, 21.5f, 2.2f)
-        addProp(PropKind.TORCH, 26.5f, 2.2f)
-        addProp(PropKind.TORCH, 32.5f, 2.2f)
-        addProp(PropKind.TORCH, 26.5f, 19.5f)
-        addProp(PropKind.TORCH, 32.5f, 19.5f)
+        // Foundry Entrance and Chronicler's Sanctuary.
+        addProp(PropKind.TORCH, 4.5f, 29.5f)
+        addProp(PropKind.TORCH, 16.5f, 29.5f)
+        addProp(PropKind.TORCH, 4.5f, 43.5f)
+        addProp(PropKind.TORCH, 16.5f, 43.5f)
+        addProp(PropKind.TORCH, 4.5f, 6.5f)
+        addProp(PropKind.TORCH, 16.5f, 6.5f)
 
-        // NPCs
-        addProp(PropKind.NPC_CHRONICLER, 5.8f, 9.2f, solid = true)
-        addProp(PropKind.NPC_CULTIST, 15.2f, 19.5f, solid = true)
+        // Gearworks and Ashen Archive.
+        addProp(PropKind.TORCH, 29.5f, 5.5f)
+        addProp(PropKind.TORCH, 42.5f, 5.5f)
+        addProp(PropKind.TORCH, 55.5f, 5.5f)
+        addProp(PropKind.TORCH, 68.5f, 5.5f)
+        // Furnace Nave and the lower wings.
+        addProp(PropKind.TORCH, 27.5f, 24.5f)
+        addProp(PropKind.TORCH, 48.5f, 24.5f)
+        addProp(PropKind.TORCH, 29.5f, 66.5f)
+        addProp(PropKind.TORCH, 55.5f, 66.5f)
 
-        // Interactive Lever in north wing of center corridor
-        addProp(PropKind.LEVER, 19.5f, 3.6f, solid = true)
-        addProp(PropKind.GEARS, 21.0f, 3.4f, solid = true)
+        // Eastern progression route.
+        addProp(PropKind.TORCH, 76.5f, 29.5f)
+        addProp(PropKind.TORCH, 91.5f, 29.5f)
+        addProp(PropKind.TORCH, 76.5f, 46.5f)
+        addProp(PropKind.TORCH, 91.5f, 46.5f)
+        addProp(PropKind.TORCH, 76.5f, 5.5f)
+        addProp(PropKind.TORCH, 91.5f, 5.5f)
 
-        // Treasure Chests
-        addProp(PropKind.CHEST, 11.2f, 4.2f, solid = true, loot = "kite_shield")
-        addProp(PropKind.CHEST, 18.0f, 4.2f, solid = true, loot = "battle_axe")
-        addProp(PropKind.CHEST, 29.5f, 3.5f, solid = true, loot = "knight_helmet")
+        // NPCs: the Chronicler is close to the entrance; the Cultist is deeper in the Crypt.
+        addProp(PropKind.NPC_CHRONICLER, DungeonMap.CHRONICLER_X, DungeonMap.CHRONICLER_Y, solid = true)
+        addProp(PropKind.NPC_CULTIST, 62.5f, 60.5f, solid = true)
 
-        // Destructible Barrels & Decorative Props
-        addProp(PropKind.BARREL, 3.2f, 15.5f, solid = true)
-        addProp(PropKind.BARREL, 4.2f, 16.0f, solid = true)
-        addProp(PropKind.BARREL, 15.0f, 9.0f, solid = true)
-        addProp(PropKind.BARREL, 20.5f, 16.5f, solid = true)
-        addProp(PropKind.BARREL, 26.0f, 11.5f, solid = true)
-        addProp(PropKind.BARRICADE, 15.5f, 14.5f, solid = true)
-        addProp(PropKind.SKULLS, 24.8f, 4.2f, solid = false)
-        addProp(PropKind.SKULLS, 33.2f, 18.8f, solid = false)
-        addProp(PropKind.CHANDELIER, 29.5f, 11.5f, solid = false)
+        // The Gearworks lever opens the only gate into Crimson Sanctum.
+        addProp(PropKind.LEVER, DungeonMap.LEVER_X, DungeonMap.LEVER_Y, solid = true)
+        addProp(PropKind.GEARS, 41.5f, 10.5f, solid = true)
 
-        // Enemies across the 3 chambers
-        spawnEnemy(EnemyKind.SKELETON, 9.5f, 6.5f)
-        spawnEnemy(EnemyKind.SKELETON, 10.5f, 15.5f)
-        spawnEnemy(EnemyKind.SKELETON, 15.5f, 11.5f)
-        spawnEnemy(EnemyKind.GARGOYLE, 17.5f, 10.0f)
-        spawnEnemy(EnemyKind.GARGOYLE, 20.5f, 13.5f)
-        spawnEnemy(EnemyKind.AUTOMATON, 18.5f, 5.5f)
-        spawnEnemy(EnemyKind.AUTOMATON, 21.0f, 18.0f)
-        spawnEnemy(EnemyKind.SKELETON, 26.5f, 9.0f)
-        spawnEnemy(EnemyKind.GARGOYLE, 27.0f, 15.0f)
-        spawnEnemy(EnemyKind.BOSS_MECH, 31.0f, 10.0f)
-        spawnEnemy(EnemyKind.BOSS_DEMON, 31.8f, 14.2f)
+        // Optional treasure branches reward exploration without blocking the main route.
+        addProp(PropKind.CHEST, 15.5f, 42.0f, solid = true, loot = "kite_shield")
+        addProp(PropKind.CHEST, 65.5f, 11.5f, solid = true, loot = "battle_axe")
+        addProp(PropKind.CHEST, 43.5f, 63.5f, solid = true, loot = "crimson_potion")
+        addProp(PropKind.CHEST, 68.5f, 63.5f, solid = true, loot = "knight_helmet")
+        addProp(PropKind.CHEST, 88.5f, 40.5f, solid = true, loot = "shadow_hood")
+
+        // Barrels, barricades and environmental dressing.
+        addProp(PropKind.BARREL, 5.5f, 40.5f, solid = true)
+        addProp(PropKind.BARREL, 7.0f, 41.5f, solid = true)
+        addProp(PropKind.BARREL, 32.5f, 43.5f, solid = true)
+        addProp(PropKind.BARREL, 45.5f, 33.0f, solid = true)
+        addProp(PropKind.BARRICADE, 31.5f, 36.5f, solid = true)
+        addProp(PropKind.BARRICADE, 57.5f, 42.5f, solid = true)
+        addProp(PropKind.SKULLS, 56.5f, 55.5f)
+        addProp(PropKind.SKULLS, 68.5f, 58.5f)
+        addProp(PropKind.CHANDELIER, 39.5f, 35.5f)
+        addProp(PropKind.CHANDELIER, 84.5f, 37.5f)
+
+        // Enemies are distributed by wing. Bosses remain together in the final Sanctum.
+        spawnEnemy(EnemyKind.SKELETON, 15.5f, 39.5f)
+        spawnEnemy(EnemyKind.SKELETON, 15.5f, 14.5f)
+        spawnEnemy(EnemyKind.AUTOMATON, 42.5f, 17.5f)
+        spawnEnemy(EnemyKind.GARGOYLE, 56.5f, 9.5f)
+        spawnEnemy(EnemyKind.SKELETON, 65.5f, 17.5f)
+        spawnEnemy(EnemyKind.SKELETON, 34.5f, 30.5f)
+        spawnEnemy(EnemyKind.GARGOYLE, 43.5f, 44.5f)
+        spawnEnemy(EnemyKind.AUTOMATON, 44.5f, 27.5f)
+        spawnEnemy(EnemyKind.SKELETON, 31.5f, 63.5f)
+        spawnEnemy(EnemyKind.GARGOYLE, 43.5f, 63.5f)
+        spawnEnemy(EnemyKind.SKELETON, 57.5f, 36.5f)
+        spawnEnemy(EnemyKind.SKELETON, 66.5f, 58.5f)
+        spawnEnemy(EnemyKind.AUTOMATON, 56.5f, 63.5f)
+        spawnEnemy(EnemyKind.GARGOYLE, 86.5f, 32.5f)
+        spawnEnemy(EnemyKind.AUTOMATON, 86.5f, 43.5f)
+        spawnEnemy(EnemyKind.BOSS_MECH, 85.5f, 11.5f)
+        spawnEnemy(EnemyKind.BOSS_DEMON, 86.5f, 17.5f)
     }
 
     private fun spawnEnemy(kind: EnemyKind, x: Float, y: Float) {
@@ -797,6 +838,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
     }
 
     private fun updateEnemies(dt: Float, config: RenderConfig) {
+        ensureEnemyFlowField()
         var activeCount = 0
         for (e in enemies) {
             if (!e.active) continue
@@ -821,8 +863,12 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 e.hitFlash = 0.45f
                 if (e.attackWindup <= 0f) {
                     if (e.kind.isRanged) {
-                        fireEnemyProjectile(e, dx, dy, dist)
-                    } else if (dist <= e.kind.radius + 1.05f) {
+                        if (hasLineOfSight(e.x, e.y, playerX, playerY)) {
+                            fireEnemyProjectile(e, dx, dy, dist)
+                        }
+                    } else if (dist <= e.kind.radius + 1.05f &&
+                        hasLineOfSight(e.x, e.y, playerX, playerY)
+                    ) {
                         damagePlayer(e.kind.atk, config)
                     }
                     e.attackCooldown = if (e.kind.isBoss) 1.15f else 1.45f
@@ -838,16 +884,134 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 }
 
                 val desiredRange = if (e.kind.isRanged) 4.4f else (e.kind.radius + 0.62f)
-                if (dist > desiredRange) {
-                    val step = e.kind.speed * dt
-                    val nx = (dx / dist) * step
-                    val ny = (dy / dist) * step
-                    if (map.isWalkable(e.x + nx, e.y, e.kind.radius)) e.x += nx
-                    if (map.isWalkable(e.x, e.y + ny, e.kind.radius)) e.y += ny
+                val canSeePlayer = hasLineOfSight(e.x, e.y, playerX, playerY)
+                if (dist > desiredRange || !canSeePlayer) {
+                    moveEnemyAlongFlow(e, dt)
                 } else if (e.attackCooldown <= 0f) {
                     e.attackWindup = 0.38f
                 }
             }
+        }
+    }
+
+    /**
+     * Tile-sampled visibility check. It deliberately ignores actors and props; only
+     * solid dungeon geometry and locked gates block melee/ranged attacks.
+     */
+    private fun hasLineOfSight(fromX: Float, fromY: Float, toX: Float, toY: Float): Boolean {
+        val dx = toX - fromX
+        val dy = toY - fromY
+        val steps = (maxOf(abs(dx), abs(dy)) * 4f).toInt().coerceAtLeast(1)
+        for (i in 1 until steps) {
+            val progress = i.toFloat() / steps.toFloat()
+            val tileX = floor((fromX + dx * progress).toDouble()).toInt()
+            val tileY = floor((fromY + dy * progress).toDouble()).toInt()
+            if (map.isTileSolid(map.getTile(tileX, tileY))) return false
+        }
+        return true
+    }
+
+    /**
+     * Rebuild a shared four-way BFS flow field only when the player changes tile or
+     * map passability changes. Every enemy then follows the same precomputed routes.
+     */
+    private fun ensureEnemyFlowField() {
+        val playerTileX = floor(playerX.toDouble()).toInt()
+        val playerTileY = floor(playerY.toDouble()).toInt()
+        val mapRevision = map.walkabilityRevision
+        if (playerTileX == navigationPlayerTileX &&
+            playerTileY == navigationPlayerTileY &&
+            mapRevision == navigationMapRevision
+        ) return
+
+        navigationPlayerTileX = playerTileX
+        navigationPlayerTileY = playerTileY
+        navigationMapRevision = mapRevision
+        navigationDistance.fill(-1)
+        navigationStepX.fill(0)
+        navigationStepY.fill(0)
+
+        // Use the nearest cell that has enough clearance for even the largest enemy.
+        var startIndex = -1
+        var bestDistance = Int.MAX_VALUE
+        for (radius in 0..2) {
+            for (y in (playerTileY - radius)..(playerTileY + radius)) {
+                for (x in (playerTileX - radius)..(playerTileX + radius)) {
+                    if (x !in 0 until DungeonMap.WIDTH || y !in 0 until DungeonMap.HEIGHT) continue
+                    if (maxOf(kotlin.math.abs(x - playerTileX), kotlin.math.abs(y - playerTileY)) != radius) continue
+                    if (!map.isWalkable(x + 0.5f, y + 0.5f, NAVIGATION_AGENT_RADIUS)) continue
+                    val distance = (x - playerTileX) * (x - playerTileX) +
+                        (y - playerTileY) * (y - playerTileY)
+                    if (distance < bestDistance) {
+                        bestDistance = distance
+                        startIndex = y * DungeonMap.WIDTH + x
+                    }
+                }
+            }
+            if (startIndex >= 0) break
+        }
+        if (startIndex < 0) return
+
+        var head = 0
+        var tail = 0
+        navigationQueue[tail++] = startIndex
+        navigationDistance[startIndex] = 0
+
+        while (head < tail) {
+            val current = navigationQueue[head++]
+            val x = current % DungeonMap.WIDTH
+            val y = current / DungeonMap.WIDTH
+
+            for (direction in 0..3) {
+                val nextX: Int
+                val nextY: Int
+                when (direction) {
+                    0 -> { nextX = x + 1; nextY = y }
+                    1 -> { nextX = x - 1; nextY = y }
+                    2 -> { nextX = x; nextY = y + 1 }
+                    else -> { nextX = x; nextY = y - 1 }
+                }
+                if (nextX !in 0 until DungeonMap.WIDTH || nextY !in 0 until DungeonMap.HEIGHT) continue
+                val nextIndex = nextY * DungeonMap.WIDTH + nextX
+                if (navigationDistance[nextIndex] >= 0) continue
+                if (!map.isWalkable(nextX + 0.5f, nextY + 0.5f, NAVIGATION_AGENT_RADIUS)) continue
+
+                navigationDistance[nextIndex] = navigationDistance[current] + 1
+                navigationStepX[nextIndex] = (x - nextX).toByte()
+                navigationStepY[nextIndex] = (y - nextY).toByte()
+                navigationQueue[tail++] = nextIndex
+            }
+        }
+    }
+
+    private fun moveEnemyAlongFlow(enemy: EnemyActor, dt: Float) {
+        val tileX = floor(enemy.x.toDouble()).toInt()
+        val tileY = floor(enemy.y.toDouble()).toInt()
+        if (tileX !in 0 until DungeonMap.WIDTH || tileY !in 0 until DungeonMap.HEIGHT) return
+
+        val index = tileY * DungeonMap.WIDTH + tileX
+        if (navigationDistance[index] < 0) return
+
+        val stepX = navigationStepX[index].toInt()
+        val stepY = navigationStepY[index].toInt()
+        val targetX = if (stepX == 0 && stepY == 0) playerX else tileX + stepX + 0.5f
+        val targetY = if (stepX == 0 && stepY == 0) playerY else tileY + stepY + 0.5f
+        val dx = targetX - enemy.x
+        val dy = targetY - enemy.y
+        val distance = sqrt(dx * dx + dy * dy)
+        if (distance <= 0.025f) return
+
+        enemy.facing = Direction.fromVector(dx, dy, enemy.facing)
+        val travel = (enemy.kind.speed * dt).coerceAtMost(distance)
+        val moveX = dx / distance * travel
+        val moveY = dy / distance * travel
+
+        // Keep axis-separated collision so the existing wall-sliding behaviour remains.
+        if (map.isWalkable(enemy.x + moveX, enemy.y, enemy.kind.radius)) {
+            enemy.x += moveX
+        }
+        if (map.isWalkable(enemy.x, enemy.y + moveY, enemy.kind.radius)) {
+            enemy.y += moveY
         }
     }
 
@@ -1087,7 +1251,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 map.unlockGate()
                 cachedMiniMapTerrain = map.encodeMiniMapTerrain()
                 queueSoundCue(SoundCue.LEVER)
-                showToast("Залізну Браму до Святилища відчинено!")
+                showToast("Браму до Багряного Святилища відчинено!")
                 spawnParticleBurst(p.x, p.y, 10, 0.9f, 0.6f, 0.2f, config)
             }
             PropKind.NPC_CHRONICLER -> {
@@ -1340,10 +1504,23 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             if (snapshot.gateUnlocked) {
                 map.unlockGate()
             }
-            playerX = snapshot.playerX
-            playerY = snapshot.playerY
+            val savedPlayerX = snapshot.playerX
+            val savedPlayerY = snapshot.playerY
+            if (snapshot.version >= 2 &&
+                map.isWalkable(savedPlayerX, savedPlayerY, PLAYER_COLLISION_RADIUS)
+            ) {
+                playerX = savedPlayerX
+                playerY = savedPlayerY
+            } else {
+                // Legacy coordinates may now land inside new room walls: recover at the entrance.
+                playerX = DungeonMap.START_X
+                playerY = DungeonMap.START_Y
+            }
             camX = playerX
             camY = playerY
+            navigationPlayerTileX = Int.MIN_VALUE
+            navigationPlayerTileY = Int.MIN_VALUE
+            navigationMapRevision = Int.MIN_VALUE
             playerFacing = snapshot.playerFacing
             playerMaxHp = snapshot.playerMaxHp.coerceAtLeast(1)
             playerHp = snapshot.playerHp.coerceIn(1, playerMaxHp)
@@ -1369,33 +1546,52 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 }
             }
 
-            snapshot.props.forEach { sp ->
-                if (sp.index in props.indices) {
-                    props[sp.index].active = sp.active
-                    props[sp.index].used = sp.used
+            // Version 1 stored indices for the old compact map population. Its props and
+            // enemies no longer correspond to the expanded world's placement, so keep the
+            // new deterministic population and migrate only player progression/inventory.
+            if (snapshot.version >= 2) {
+                snapshot.props.forEach { sp ->
+                    if (sp.index in props.indices) {
+                        props[sp.index].active = sp.active
+                        props[sp.index].used = sp.used
+                    }
                 }
-            }
 
-            snapshot.enemies.forEach { se ->
-                if (se.index in enemies.indices) {
-                    val target = enemies[se.index]
-                    target.active = se.active
-                    target.hp = se.hp
-                    target.x = se.x
-                    target.y = se.y
-                    target.facing = se.facing
-                    target.attackWindup = 0f
-                    target.hitFlash = 0f
+                snapshot.enemies.forEach { se ->
+                    if (se.index in enemies.indices) {
+                        val target = enemies[se.index]
+                        if (se.active && !map.isWalkable(se.x, se.y, target.kind.radius)) {
+                            target.active = false
+                        } else {
+                            target.active = se.active
+                            target.hp = se.hp
+                            target.x = se.x
+                            target.y = se.y
+                            target.facing = se.facing
+                            target.attackWindup = 0f
+                            target.hitFlash = 0f
+                        }
+                    }
                 }
-            }
 
-            pickups.forEach { it.active = false }
-            snapshot.pickups.forEachIndexed { idx, sp ->
-                if (idx < pickups.size) {
-                    pickups[idx].active = true
-                    pickups[idx].x = sp.x
-                    pickups[idx].y = sp.y
-                    pickups[idx].itemId = sp.itemId
+                pickups.forEach { it.active = false }
+                snapshot.pickups.forEachIndexed { idx, sp ->
+                    if (idx < pickups.size && map.isWalkable(sp.x, sp.y, 0.12f)) {
+                        pickups[idx].active = true
+                        pickups[idx].x = sp.x
+                        pickups[idx].y = sp.y
+                        pickups[idx].itemId = sp.itemId
+                    }
+                }
+            } else {
+                var legacyBossesToMarkDefeated = bossesDefeated
+                for (enemy in enemies) {
+                    if (legacyBossesToMarkDefeated <= 0) break
+                    if (enemy.active && enemy.kind.isBoss) {
+                        enemy.active = false
+                        enemy.hp = 0
+                        legacyBossesToMarkDefeated--
+                    }
                 }
             }
 
@@ -1429,7 +1625,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         synchronized(stateLock) {
             val potCount = backpack.firstOrNull { it.id == "crimson_potion" }?.count ?: 0
             val hint = when {
-                !map.gateUnlocked -> "Мета: знайдіть важіль у коридорі та відчиніть Браму"
+                !map.gateUnlocked -> "Мета: знайдіть важіль у Gearworks та відчиніть Браму"
                 bossesDefeated < totalBosses -> "Мета: здолайте Варту Крипти (${bossesDefeated}/$totalBosses)"
                 else -> "Крипту очищено!"
             }
@@ -1559,15 +1755,18 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
 
             add(
                 MiniMapMarker(
-                    x = 23.5f,
-                    y = 11.5f,
+                    x = DungeonMap.GATE_CENTER_X,
+                    y = DungeonMap.GATE_CENTER_Y,
                     kind = if (map.gateUnlocked) MiniMapMarkerKind.GATE_OPEN else MiniMapMarkerKind.GATE_LOCKED,
                     isPrimaryQuest = !map.gateUnlocked
                 )
             )
 
             for (e in enemies) {
-                if (e.active && e.kind.isBoss) {
+                if (!e.active || !e.kind.isBoss) continue
+                val bossTileX = floor(e.x.toDouble()).toInt()
+                val bossTileY = floor(e.y.toDouble()).toInt()
+                if (isTileDiscovered(bossTileX, bossTileY)) {
                     add(MiniMapMarker(e.x, e.y, MiniMapMarkerKind.BOSS, isPrimaryQuest = map.gateUnlocked))
                 }
             }

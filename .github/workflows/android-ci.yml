@@ -1,0 +1,107 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Unit tests and debug build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :app:testDebugUnitTest --stacktrace --no-daemon 2>&1 | tee build-output.log
+
+      - name: Annotate failure details
+        if: failure()
+        shell: bash
+        run: |
+          marks=$(grep -E "FAILED|AssertionError|failed:|^e: |e: file|error: |Execution failed|There were failing tests|BUILD FAILED" build-output.log | sort -u | head -45 || true)
+          if [ -n "$marks" ]; then
+            while IFS= read -r line; do
+              printf '::error::%s\n' "$(printf '%s' "$line" | cut -c1-230 | tr ':' ' ')"
+            done <<< "$marks"
+          else
+            tail -n 45 build-output.log | while IFS= read -r line; do
+              printf '::error::%s\n' "$(printf '%s' "$line" | cut -c1-230 | tr ':' ' ')"
+            done
+          fi
+
+      # A cached debug keystore keeps the APK signature stable between runs, so
+      # a newly downloaded debug APK can update the earlier IronCrypt install.
+      - name: Restore cached debug keystore
+        id: debug_keystore
+        uses: actions/cache@v4
+        with:
+          path: debug.keystore
+          key: ironcrypt-project-debug-keystore
+
+      # IronCrypt explicitly points its debug signingConfig at rootDir/debug.keystore.
+      - name: Create project debug keystore if absent
+        if: steps.debug_keystore.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          keytool -genkeypair -v -keystore debug.keystore \
+            -storepass android -keypass android -alias androiddebugkey \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon 2>&1 | tee -a build-output.log
+
+      - name: Publish APK checksum
+        if: success()
+        shell: bash
+        run: |
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee apk-sha256.txt
+          {
+            echo "## IronCrypt debug APK"
+            echo "**SHA-256:**"
+            cat apk-sha256.txt
+            echo "Compare with: sha256sum app-debug.apk"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload debug APK artifact
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ironcrypt-debug-apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            apk-sha256.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ironcrypt-android-ci-diagnostics
+          if-no-files-found: ignore
+          path: |
+            build-output.log
+            app/build/reports/tests/
+            app/build/test-results/testDebugUnitTest/

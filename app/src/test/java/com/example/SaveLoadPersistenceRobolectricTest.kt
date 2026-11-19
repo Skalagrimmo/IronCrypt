@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.GameSaveRepository
 import com.example.data.QualityPreferencesRepository
 import com.example.game.engine.GameSimulation
+import com.example.game.engine.DungeonMap
 import com.example.game.engine.PropKind
 import com.example.game.model.Direction
 import com.example.game.model.GamePhase
@@ -94,10 +95,10 @@ class SaveLoadPersistenceRobolectricTest {
         assertEquals(7, target.kills)
         assertEquals(1, target.bossesDefeated)
         assertTrue(target.map.gateUnlocked)
-        assertTrue(target.map.isWalkable(23.5f, 11.5f, 0.3f))
-        assertTrue(target.isTileDiscovered(4, 12))
+        assertTrue(target.map.isWalkable(DungeonMap.GATE_CENTER_X, DungeonMap.GATE_CENTER_Y, 0.3f))
+        assertTrue(target.isTileDiscovered(18, 11))
         assertTrue(target.isTileDiscovered(19, 11))
-        assertFalse(target.isTileDiscovered(33, 20))
+        assertFalse(target.isTileDiscovered(65, 60))
         assertEquals("shadow_hood", target.equippedCloak?.id)
         val reExported = target.exportSnapshot(savedAtMs = 1_700_000_123_000L)
         assertTrue(reExported.giftedPotion)
@@ -119,6 +120,41 @@ class SaveLoadPersistenceRobolectricTest {
         assertTrue(target.pickups[0].active)
         assertEquals("gold_coins", target.pickups[0].itemId)
         assertEquals(12.5f, target.pickups[0].x, 0.001f)
+    }
+
+    @Test
+    fun legacyVersionOneSaveMigratesToSafeEntranceWithoutApplyingOldActorIndices() {
+        val source = GameSimulation()
+        source.resetRun(GamePhase.PLAYING)
+        source.playerGold = 333
+        source.playerHp = 77
+        source.map.unlockGate()
+
+        // Old compact-map coordinates and prop/enemy indices must not be replayed
+        // into the expanded layout.
+        val legacy = source.exportSnapshot(savedAtMs = 1_700_000_555_000L).copy(
+            version = 1,
+            playerX = 23.5f,
+            playerY = 11.5f,
+            bossesDefeated = 1,
+            discoveredMask = "0".repeat(36 * 24)
+        )
+
+        val target = GameSimulation()
+        target.restoreSnapshot(legacy)
+
+        assertEquals(GamePhase.PLAYING, target.phase)
+        assertEquals(DungeonMap.START_X, target.playerX, 0.001f)
+        assertEquals(DungeonMap.START_Y, target.playerY, 0.001f)
+        assertEquals(333, target.playerGold)
+        assertEquals(77, target.playerHp)
+        assertTrue(target.map.gateUnlocked)
+        assertTrue(target.map.isWalkable(DungeonMap.GATE_CENTER_X, DungeonMap.GATE_CENTER_Y, 0.3f))
+        assertEquals(1, target.bossesDefeated)
+        assertEquals(1, target.enemies.count { it.active && it.kind.isBoss })
+        assertEquals(DungeonMap.WIDTH * DungeonMap.HEIGHT, target.buildHudSnapshot(
+            com.example.game.engine.ExynosQualityGovernor(), 0
+        ).miniMap.discoveredMask.length)
     }
 
     @Test

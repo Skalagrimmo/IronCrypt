@@ -40,7 +40,7 @@ data class SaveSlotSummary(
 )
 
 data class GameSaveSnapshot(
-    val version: Int = 1,
+    val version: Int = 2,
     val savedAtEpochMs: Long,
     val playerX: Float,
     val playerY: Float,
