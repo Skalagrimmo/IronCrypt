@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.game.model.AtlasBitmapStore
 import com.example.game.model.HudUiState
-import com.example.game.model.QualityTier
 import com.example.game.model.SpriteId
 import com.example.ui.theme.AgedParchment
 import com.example.ui.theme.ArcaneCobalt
@@ -42,18 +41,14 @@ import com.example.ui.theme.CrimsonForge
 import com.example.ui.theme.IronBorder
 import com.example.ui.theme.IronPanel
 import com.example.ui.theme.MoltenBrass
-import com.example.ui.theme.SteelMist
 import com.example.ui.theme.VitalEmerald
-import java.util.Locale
 
 @Composable
 fun HudTopBar(
     hud: HudUiState,
     atlasStore: AtlasBitmapStore,
-    showTelemetry: Boolean,
     onOpenInventory: () -> Unit,
     onOpenPauseMenu: () -> Unit,
-    onOpenGraphicsTab: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -123,49 +118,11 @@ fun HudTopBar(
             )
         }
 
-        // Right: Clickable Exynos 7870 Telemetry Pill + Inventory & Unified Pause Menu Button
+        // Right: Inventory & Unified Pause Menu Button.
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (showTelemetry) {
-                val tierColor = when {
-                    hud.telemetry.isCustomOverride -> MoltenBrass
-                    hud.telemetry.activeTier == QualityTier.HIGH -> VitalEmerald
-                    hud.telemetry.activeTier == QualityTier.MEDIUM -> MoltenBrass
-                    else -> CrimsonForge
-                }
-                val tierLabel = if (hud.telemetry.isCustomOverride) "CUSTOM" else hud.telemetry.activeTier.label
-                Column(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(IronPanel.copy(alpha = 0.84f))
-                        .border(1.dp, tierColor.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
-                        .clickable(onClick = onOpenGraphicsTab)
-                        .padding(horizontal = 9.dp, vertical = 5.dp)
-                        .testTag("telemetry_pill"),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    Text(
-                        text = String.format(
-                            Locale.US,
-                            "%d FPS | %.1f ms | %s %d%%",
-                            hud.telemetry.fps,
-                            hud.telemetry.frameTimeMs,
-                            tierLabel,
-                            (hud.telemetry.resolutionScale * 100).toInt()
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = tierColor
-                    )
-                    Text(
-                        text = "OBJ:${hud.telemetry.activeEntities} PRT:${hud.telemetry.activeParticles} DC:${hud.telemetry.drawCalls}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = SteelMist
-                    )
-                }
-            }
-
             HudIconActionButton(
                 icon = Icons.Filled.Backpack,
                 label = stringResource(R.string.action_inventory),
@@ -247,6 +204,49 @@ private fun HudIconActionButton(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = AgedParchment
+        )
+    }
+}
+
+/**
+ * Discreet diagnostics readout. Kept away from the top-right mini-map controls
+ * and bottom-corner movement/combat controls.
+ */
+@Composable
+fun HudTelemetryOverlay(
+    hud: HudUiState,
+    onOpenGraphicsTab: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tierLabel = if (hud.telemetry.isCustomOverride) {
+        "CUSTOM"
+    } else {
+        hud.telemetry.activeTier.label
+    }
+
+    Column(
+        modifier = modifier
+            .clickable(onClick = onOpenGraphicsTab)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .testTag("telemetry_overlay"),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = String.format(
+                java.util.Locale.US,
+                "%d FPS · %.1f ms · %s %d%%",
+                hud.telemetry.fps,
+                hud.telemetry.frameTimeMs,
+                tierLabel,
+                (hud.telemetry.resolutionScale * 100).toInt()
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            color = AgedParchment.copy(alpha = 0.42f)
+        )
+        Text(
+            text = "OBJ ${hud.telemetry.activeEntities} · PRT ${hud.telemetry.activeParticles} · DC ${hud.telemetry.drawCalls}",
+            style = MaterialTheme.typography.labelSmall,
+            color = AgedParchment.copy(alpha = 0.30f)
         )
     }
 }
