@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +53,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -201,6 +203,14 @@ fun MiniMapOverlay(
                         .clickable(onClick = onToggleExpand)
                         .testTag("minimap_canvas")
                 ) {
+                    val terrainPaths = remember(
+                        miniMap.mapWidth,
+                        miniMap.mapHeight,
+                        miniMap.terrainLayout,
+                        miniMap.discoveredMask
+                    ) {
+                        buildMiniMapTerrainPaths(miniMap)
+                    }
                     Canvas(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -209,7 +219,8 @@ fun MiniMapOverlay(
                         drawMiniMap(
                             miniMap = miniMap,
                             pulse = pulse,
-                            isExpanded = isExpanded
+                            isExpanded = isExpanded,
+                            terrainPaths = terrainPaths
                         )
                     }
                 }
@@ -305,20 +316,70 @@ private fun LegendItem(color: Color, label: String) {
     }
 }
 
+private data class MiniMapTerrainPaths(
+    val floors: Path,
+    val grates: Path,
+    val walls: Path,
+    val lockedGates: Path,
+    val openGates: Path,
+    val fog: Path
+)
+
+private fun buildMiniMapTerrainPaths(miniMap: MiniMapState): MiniMapTerrainPaths {
+    val cols = miniMap.mapWidth.coerceAtLeast(1)
+    val rows = miniMap.mapHeight.coerceAtLeast(1)
+    val total = cols * rows
+    val terrain = miniMap.terrainLayout
+    val mask = miniMap.discoveredMask
+    val hasTerrain = terrain.length == total
+    val hasMask = mask.length == total
+
+    val paths = MiniMapTerrainPaths(
+        floors = Path(),
+        grates = Path(),
+        walls = Path(),
+        lockedGates = Path(),
+        openGates = Path(),
+        fog = Path()
+    )
+
+    for (index in 0 until total) {
+        val x = (index % cols).toFloat()
+        val y = (index / cols).toFloat()
+        val discovered = !hasMask || mask[index] == '1'
+        val target = if (!discovered) {
+            paths.fog
+        } else {
+            when (if (hasTerrain) terrain[index] else 'F') {
+                'W' -> paths.walls
+                'L' -> paths.lockedGates
+                'O' -> paths.openGates
+                'S' -> paths.grates
+                else -> paths.floors
+            }
+        }
+
+        // Unit-space rectangles are cached between player-marker pulse frames.
+        target.moveTo(x, y)
+        target.lineTo(x + 1.01f, y)
+        target.lineTo(x + 1.01f, y + 1.01f)
+        target.lineTo(x, y + 1.01f)
+        target.close()
+    }
+
+    return paths
+}
+
 private fun DrawScope.drawMiniMap(
     miniMap: MiniMapState,
     pulse: Float,
-    isExpanded: Boolean
+    isExpanded: Boolean,
+    terrainPaths: MiniMapTerrainPaths
 ) {
     val cols = miniMap.mapWidth.coerceAtLeast(1)
     val rows = miniMap.mapHeight.coerceAtLeast(1)
     val tileW = size.width / cols.toFloat()
     val tileH = size.height / rows.toFloat()
-
-    val terrain = miniMap.terrainLayout
-    val mask = miniMap.discoveredMask
-    val hasTerrain = terrain.length == cols * rows
-    val hasMask = mask.length == cols * rows
 
     val floorColor = IronSurfaceHigh.copy(alpha = 0.84f)
     val grateColor = SteelMist.copy(alpha = 0.42f)
@@ -327,45 +388,24 @@ private fun DrawScope.drawMiniMap(
     val openGateColor = VitalEmerald.copy(alpha = 0.85f)
     val fogColor = FoundryVoid.copy(alpha = 0.86f)
 
-    for (y in 0 until rows) {
-        for (x in 0 until cols) {
-            val idx = y * cols + x
-            val discovered = !hasMask || mask[idx] == '1'
-            val left = x * tileW
-            val top = y * tileH
-
-            if (!discovered) {
-                drawRect(
-                    color = fogColor,
-                    topLeft = Offset(left, top),
-                    size = Size(tileW + 0.5f, tileH + 0.5f)
-                )
-                continue
-            }
-
-            val code = if (hasTerrain) terrain[idx] else 'F'
-            val color = when (code) {
-                'W' -> wallColor
-                'L' -> lockedGateColor
-                'O' -> openGateColor
-                'S' -> grateColor
-                else -> floorColor
-            }
-            drawRect(
-                color = color,
-                topLeft = Offset(left, top),
-                size = Size(tileW + 0.5f, tileH + 0.5f)
-            )
-        }
+    // Draw the full terrain as a handful of cached paths instead of thousands of
+    // individual rectangles on every animated mini-map frame.
+    scale(scaleX = tileW, scaleY = tileH, pivot = Offset.Zero) {
+        drawPath(terrainPaths.floors, color = floorColor)
+        drawPath(terrainPaths.grates, color = grateColor)
+        drawPath(terrainPaths.walls, color = wallColor)
+        drawPath(terrainPaths.lockedGates, color = lockedGateColor)
+        drawPath(terrainPaths.openGates, color = openGateColor)
+        drawPath(terrainPaths.fog, color = fogColor)
     }
 
-    // Active quest markers & discovered points of interest
+    // Active quest markers & discovered points of interest.
     val baseRadius = (minOf(tileW, tileH) * (if (isExpanded) 0.58f else 0.72f)).coerceAtLeast(2.2f)
     for (marker in miniMap.markers) {
         drawMarker(marker, tileW, tileH, baseRadius, pulse)
     }
 
-    // Player indicator (pulsing halo + directional chevron)
+    // Player indicator (pulsing halo + directional chevron).
     val px = miniMap.playerX * tileW
     val py = miniMap.playerY * tileH
     val playerSize = (minOf(tileW, tileH) * (if (isExpanded) 0.82f else 1.0f)).coerceAtLeast(3.2f)
