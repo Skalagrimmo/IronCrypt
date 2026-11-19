@@ -863,8 +863,12 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 e.hitFlash = 0.45f
                 if (e.attackWindup <= 0f) {
                     if (e.kind.isRanged) {
-                        fireEnemyProjectile(e, dx, dy, dist)
-                    } else if (dist <= e.kind.radius + 1.05f) {
+                        if (hasLineOfSight(e.x, e.y, playerX, playerY)) {
+                            fireEnemyProjectile(e, dx, dy, dist)
+                        }
+                    } else if (dist <= e.kind.radius + 1.05f &&
+                        hasLineOfSight(e.x, e.y, playerX, playerY)
+                    ) {
                         damagePlayer(e.kind.atk, config)
                     }
                     e.attackCooldown = if (e.kind.isBoss) 1.15f else 1.45f
@@ -880,13 +884,31 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 }
 
                 val desiredRange = if (e.kind.isRanged) 4.4f else (e.kind.radius + 0.62f)
-                if (dist > desiredRange) {
+                val canSeePlayer = hasLineOfSight(e.x, e.y, playerX, playerY)
+                if (dist > desiredRange || !canSeePlayer) {
                     moveEnemyAlongFlow(e, dt)
                 } else if (e.attackCooldown <= 0f) {
                     e.attackWindup = 0.38f
                 }
             }
         }
+    }
+
+    /**
+     * Tile-sampled visibility check. It deliberately ignores actors and props; only
+     * solid dungeon geometry and locked gates block melee/ranged attacks.
+     */
+    private fun hasLineOfSight(fromX: Float, fromY: Float, toX: Float, toY: Float): Boolean {
+        val dx = toX - fromX
+        val dy = toY - fromY
+        val steps = (maxOf(abs(dx), abs(dy)) * 4f).toInt().coerceAtLeast(1)
+        for (i in 1 until steps) {
+            val progress = i.toFloat() / steps.toFloat()
+            val tileX = floor((fromX + dx * progress).toDouble()).toInt()
+            val tileY = floor((fromY + dy * progress).toDouble()).toInt()
+            if (map.isTileSolid(map.getTile(tileX, tileY))) return false
+        }
+        return true
     }
 
     /**
