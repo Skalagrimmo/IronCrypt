@@ -1229,7 +1229,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 map.unlockGate()
                 cachedMiniMapTerrain = map.encodeMiniMapTerrain()
                 queueSoundCue(SoundCue.LEVER)
-                showToast("Залізну Браму до Святилища відчинено!")
+                showToast("Браму до Багряного Святилища відчинено!")
                 spawnParticleBurst(p.x, p.y, 10, 0.9f, 0.6f, 0.2f, config)
             }
             PropKind.NPC_CHRONICLER -> {
@@ -1603,7 +1603,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         synchronized(stateLock) {
             val potCount = backpack.firstOrNull { it.id == "crimson_potion" }?.count ?: 0
             val hint = when {
-                !map.gateUnlocked -> "Мета: знайдіть важіль у коридорі та відчиніть Браму"
+                !map.gateUnlocked -> "Мета: знайдіть важіль у Gearworks та відчиніть Браму"
                 bossesDefeated < totalBosses -> "Мета: здолайте Варту Крипти (${bossesDefeated}/$totalBosses)"
                 else -> "Крипту очищено!"
             }
