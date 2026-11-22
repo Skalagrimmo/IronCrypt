@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Backpack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -56,7 +55,7 @@ fun HudTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top
     ) {
-        // Left: Hero portrait, HP/Stamina bars, Gold & Quest Hint
+        // The status panel itself is the inventory shortcut.
         Column(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -65,43 +64,69 @@ fun HudTopBar(
                     .clip(RoundedCornerShape(8.dp))
                     .background(IronPanel.copy(alpha = 0.84f))
                     .border(1.5.dp, IronBorder, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Image(
-                    bitmap = atlasStore.getHeroPortraitBitmap(hud.heroPortraitId),
-                    contentDescription = "Dark Hero",
-                    filterQuality = FilterQuality.None,
-                    modifier = Modifier.size(34.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    BarMeter(
-                        label = "HP ${hud.hp}/${hud.maxHp}",
-                        fraction = (hud.hp.toFloat() / hud.maxHp.toFloat()).coerceIn(0f, 1f),
-                        fillColor = if (hud.hp < hud.maxHp * 0.35f) CrimsonForge else VitalEmerald,
-                        widthDp = 148
-                    )
-                    BarMeter(
-                        label = "SP ${hud.stamina.toInt()}",
-                        fraction = (hud.stamina / hud.maxStamina).coerceIn(0f, 1f),
-                        fillColor = ArcaneCobalt,
-                        widthDp = 148
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(5.dp))
+                        .clickable(onClick = onOpenInventory)
+                        .testTag("inventory_button")
+                        .padding(vertical = 1.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Image(
-                        bitmap = atlasStore.getSpriteBitmap(SpriteId.ITEM_COINS),
-                        contentDescription = "Gold",
+                        bitmap = atlasStore.getHeroPortraitBitmap(hud.heroPortraitId),
+                        contentDescription = stringResource(R.string.action_inventory),
                         filterQuality = FilterQuality.None,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(34.dp)
                     )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = "${hud.gold}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MoltenBrass
+                    Spacer(Modifier.width(8.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        BarMeter(
+                            label = "HP ${hud.hp}/${hud.maxHp}",
+                            fraction = (hud.hp.toFloat() / hud.maxHp.toFloat()).coerceIn(0f, 1f),
+                            fillColor = if (hud.hp < hud.maxHp * 0.35f) CrimsonForge else VitalEmerald,
+                            widthDp = 148
+                        )
+                        BarMeter(
+                            label = "SP ${hud.stamina.toInt()}",
+                            fraction = (hud.stamina / hud.maxStamina).coerceIn(0f, 1f),
+                            fillColor = ArcaneCobalt,
+                            widthDp = 148
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            bitmap = atlasStore.getSpriteBitmap(SpriteId.ITEM_COINS),
+                            contentDescription = "Gold",
+                            filterQuality = FilterQuality.None,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "${hud.gold}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MoltenBrass
+                        )
+                    }
+                }
+
+                // Compact pause control integrated into the same HUD panel.
+                Box(
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(onClick = onOpenPauseMenu)
+                        .testTag("pause_button"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Pause,
+                        contentDescription = stringResource(R.string.action_pause),
+                        tint = AgedParchment,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
@@ -115,28 +140,6 @@ fun HudTopBar(
                     .background(IronPanel.copy(alpha = 0.72f))
                     .border(1.dp, IronBorder.copy(alpha = 0.7f), RoundedCornerShape(6.dp))
                     .padding(horizontal = 8.dp, vertical = 4.dp)
-            )
-        }
-
-        // Right: Inventory & Unified Pause Menu Button.
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            HudIconActionButton(
-                icon = Icons.Filled.Backpack,
-                label = stringResource(R.string.action_inventory),
-                tint = MoltenBrass,
-                testTag = "inventory_button",
-                onClick = onOpenInventory
-            )
-
-            HudIconActionButton(
-                icon = Icons.Filled.Pause,
-                label = stringResource(R.string.action_pause),
-                tint = AgedParchment,
-                testTag = "pause_button",
-                onClick = onOpenPauseMenu
             )
         }
     }
@@ -170,40 +173,6 @@ private fun BarMeter(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(horizontal = 5.dp)
-        )
-    }
-}
-
-@Composable
-private fun HudIconActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    tint: Color,
-    testTag: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .minimumInteractiveComponentSize()
-            .clip(RoundedCornerShape(8.dp))
-            .background(IronPanel.copy(alpha = 0.88f))
-            .border(1.5.dp, IronBorder, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
-            .testTag(testTag),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = tint,
-            modifier = Modifier.size(20.dp)
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = AgedParchment
         )
     }
 }
