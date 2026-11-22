@@ -99,7 +99,6 @@ fun CombatActionPad(
             }
         }
 
-        // Top row of secondary tactical buttons: Potion & Heavy Cleave
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -135,7 +134,6 @@ fun CombatActionPad(
 
         Spacer(Modifier.height(10.dp))
 
-        // Bottom row: Dodge Dash + Large Primary Sword Attack
         Row(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.Bottom
@@ -184,42 +182,50 @@ private fun ActionCircleButton(
     spriteBitmap: ImageBitmap? = null,
     icon: (@Composable () -> Unit)? = null
 ) {
+    // Keep the original full-size hit target while shrinking only the visible control.
+    val visualSize = size * 0.82f
     Box(
         modifier = Modifier
             .size(size)
-            .clip(CircleShape)
-            .background(IronPanel.copy(alpha = 0.80f))
-            .border(2.5.dp, ringColor.copy(alpha = 0.9f), CircleShape)
             .clickable(onClick = onClick)
             .testTag(testTag),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (spriteBitmap != null) {
-                Image(
-                    bitmap = spriteBitmap,
-                    contentDescription = contentDescription,
-                    filterQuality = FilterQuality.None,
-                    modifier = Modifier.size(size * 0.44f)
+        Box(
+            modifier = Modifier
+                .size(visualSize)
+                .clip(CircleShape)
+                .background(IronPanel.copy(alpha = 0.80f))
+                .border(2.5.dp, ringColor.copy(alpha = 0.9f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (spriteBitmap != null) {
+                    Image(
+                        bitmap = spriteBitmap,
+                        contentDescription = contentDescription,
+                        filterQuality = FilterQuality.None,
+                        modifier = Modifier.size(visualSize * 0.44f)
+                    )
+                } else if (icon != null) {
+                    icon()
+                }
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AgedParchment
                 )
-            } else if (icon != null) {
-                icon()
             }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = AgedParchment
-            )
-        }
 
-        if (cooldownRatio > 0.01f) {
-            Canvas(modifier = Modifier.matchParentSize()) {
-                drawArc(
-                    color = Color.Black.copy(alpha = 0.65f),
-                    startAngle = -90f,
-                    sweepAngle = 360f * cooldownRatio,
-                    useCenter = true
-                )
+            if (cooldownRatio > 0.01f) {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    drawArc(
+                        color = Color.Black.copy(alpha = 0.65f),
+                        startAngle = -90f,
+                        sweepAngle = 360f * cooldownRatio,
+                        useCenter = true
+                    )
+                }
             }
         }
     }
