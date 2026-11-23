@@ -97,11 +97,8 @@ fun IronCryptScreen(viewModel: GameViewModel) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    val density = LocalDensity.current
-    var hudTopBarHeightPx by remember { mutableIntStateOf(0) }
-    val miniMapTopPadding = with(density) {
-        maxOf(56.dp, hudTopBarHeightPx.toDp() + 12.dp)
-    }
+    // The upper-right HUD area is now free after moving pause/inventory
+    // shortcuts into the status panel, so the mini-map can sit at the top edge.
 
     var surfacePxW by remember { mutableIntStateOf(0) }
     var surfacePxH by remember { mutableIntStateOf(0) }
@@ -187,7 +184,7 @@ fun IronCryptScreen(viewModel: GameViewModel) {
                     onOpenPauseMenu = { viewModel.openPauseMenu(PauseMenuTab.GAME) },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .onSizeChanged { hudTopBarHeightPx = it.height }
+ 
                 )
 
                 AnimatedVisibility(
@@ -225,7 +222,7 @@ fun IronCryptScreen(viewModel: GameViewModel) {
                     onRestore = viewModel::restoreMiniMap,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = miniMapTopPadding)
+                        .padding(top = 4.dp)
                 )
 
                 CombatActionPad(
