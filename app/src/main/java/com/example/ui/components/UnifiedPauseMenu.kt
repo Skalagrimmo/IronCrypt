@@ -454,7 +454,7 @@ private fun PauseGraphicsTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = stringResource(R.string.title_exynos_tag),
+                    text = stringResource(R.string.title_rendering_tag),
                     style = MaterialTheme.typography.labelSmall,
                     color = SteelMist
                 )
