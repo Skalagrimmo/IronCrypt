@@ -6,7 +6,7 @@ import android.graphics.BitmapFactory
 import androidx.test.core.app.ApplicationProvider
 import com.example.game.engine.AnimationCategory
 import com.example.game.engine.AnimationState
-import com.example.game.engine.ExynosQualityGovernor
+import com.example.game.engine.AdaptiveQualityGovernor
 import com.example.game.engine.GameSimulation
 import com.example.game.engine.DungeonMap
 import com.example.game.engine.HeroAnimationController
@@ -557,7 +557,7 @@ class DarkHeroAnimationAndAtlasTest {
 
     @Test
     fun governorRingBufferComputesPartialAndWrapAroundP95AndJankCountCleanly() {
-        val gov = ExynosQualityGovernor()
+        val gov = AdaptiveQualityGovernor()
         gov.mode = QualityMode.AUTO
 
         var now = 1_000_000L
@@ -579,7 +579,7 @@ class DarkHeroAnimationAndAtlasTest {
             now += 10_000_000L
             gov.recordFrame(now, 8f)
         }
-        assertEquals(ExynosQualityGovernor.FRAME_RING_CAPACITY, gov.sampleCount)
+        assertEquals(AdaptiveQualityGovernor.FRAME_RING_CAPACITY, gov.sampleCount)
         assertEquals(2, gov.cpuSubmitJankCount) // cumulative jank count retained across run
         assertEquals(8f, gov.computeCpuSubmitP95Ms(), 0.05f)
 
