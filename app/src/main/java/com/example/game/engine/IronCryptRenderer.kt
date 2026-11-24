@@ -26,7 +26,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * OpenGL ES 2.0 renderer tuned for Exynos 7870 (Mali-T830 MP1):
+ * OpenGL ES 2.0 mobile renderer with a conservative, allocation-conscious draw path:
  * - Single 1024x1024 GL_NEAREST sprite atlas + tiny 64x64 procedural glow/shadow texture
  * - Viewport-culled tilemap + Y-sorted entities using pre-allocated buffers (zero GC)
  * - Strictly caps active objects/particles and updates shader uniforms from [RenderConfig]
@@ -34,7 +34,7 @@ import kotlin.math.sqrt
 class IronCryptRenderer(
     private val context: Context,
     private val simulation: GameSimulation,
-    private val governor: ExynosQualityGovernor,
+    private val governor: AdaptiveQualityGovernor,
     private val onScaleRequested: (Float) -> Unit,
     private val onHudUpdate: () -> Unit,
     private val onSoundCuesReady: () -> Unit = {}
@@ -262,7 +262,7 @@ class IronCryptRenderer(
             onHudUpdate()
         }
 
-        // Emit periodic structured performance log for Mali-T830 / Exynos 7870 telemetry
+        // Emit periodic structured performance log for mobile OpenGL ES 2.0 telemetry
         if (workDoneNs - lastPerfLogNs >= 2_500_000_000L) {
             lastPerfLogNs = workDoneNs
             Log.i(
