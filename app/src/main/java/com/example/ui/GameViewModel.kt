@@ -8,7 +8,7 @@ import com.example.data.AudioSettings
 import com.example.data.GameSaveRepository
 import com.example.data.GraphicsSettings
 import com.example.data.QualityPreferencesRepository
-import com.example.game.engine.ExynosQualityGovernor
+import com.example.game.engine.AdaptiveQualityGovernor
 import com.example.game.engine.GameSimulation
 import com.example.game.engine.IronCryptRenderer
 import com.example.game.model.AtlasBitmapStore
@@ -38,7 +38,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val soundManager = IronCryptSoundManager(application)
     val atlasStore = AtlasBitmapStore(application)
     val simulation = GameSimulation()
-    val governor = ExynosQualityGovernor()
+    val governor = AdaptiveQualityGovernor()
 
     private val soundCueDrainScratch = ArrayList<SoundCue>(16)
 
