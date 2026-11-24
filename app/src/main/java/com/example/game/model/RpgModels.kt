@@ -1,7 +1,7 @@
 package com.example.game.model
 
 enum class QualityMode(val labelUk: String) {
-    AUTO("АВТО (Exynos)"),
+    AUTO("АВТО (АДАПТИВНА)"),
     LOW("НИЗЬКА"),
     MEDIUM("СЕРЕДНЯ"),
     HIGH("ВИСОКА")
