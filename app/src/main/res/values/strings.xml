@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">IronCrypt</string>
     <string name="title_subtitle">GOTHIC-INDUSTRIAL ACTION RPG</string>
-    <string name="title_exynos_tag">EXYNOS 7870 / MALI-T830 TUNED</string>
+    <string name="title_rendering_tag">MOBILE GLES 2.0 / ADAPTIVE QUALITY</string>
     <string name="action_start_expedition">НОВА ЕКСПЕДИЦІЯ</string>
     <string name="action_continue_expedition">ПРОДОВЖИТИ ЕКСПЕДИЦІЮ</string>
     <string name="action_resume">ПРОДОВЖИТИ</string>
