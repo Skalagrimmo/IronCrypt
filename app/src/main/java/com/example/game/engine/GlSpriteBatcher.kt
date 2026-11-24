@@ -8,7 +8,7 @@ import java.nio.FloatBuffer
 import java.nio.ShortBuffer
 
 /**
- * Zero-allocation OpenGL ES 2.0 quad batcher designed for Mali-T830 MP1 (Exynos 7870).
+ * Zero-allocation OpenGL ES 2.0 quad batcher for constrained mobile GPUs.
  * Exposes lightweight mediump shader uniforms (uLightingStrength, uFlickerFactor, uWarmthTint)
  * with zero fragment branching so quality settings adjust lighting & grading at full speed.
  */
