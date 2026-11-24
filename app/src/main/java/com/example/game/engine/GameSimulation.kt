@@ -143,8 +143,8 @@ class FloatingTextSlot {
 }
 
 /**
- * Fixed-pool real-time RPG simulation. Zero allocations during update ticks so Cortex-A53
- * cores on Exynos 7870 avoid GC frame hitches.
+ * Fixed-pool real-time RPG simulation. Zero allocations during update ticks keep garbage
+ * collection off the frame loop on constrained mobile CPUs.
  */
 class GameSimulation(val map: DungeonMap = DungeonMap()) {
 
@@ -1621,7 +1621,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         }
     }
 
-    fun buildHudSnapshot(governor: ExynosQualityGovernor, drawCalls: Int): HudUiState {
+    fun buildHudSnapshot(governor: AdaptiveQualityGovernor, drawCalls: Int): HudUiState {
         synchronized(stateLock) {
             val potCount = backpack.firstOrNull { it.id == "crimson_potion" }?.count ?: 0
             val hint = when {
