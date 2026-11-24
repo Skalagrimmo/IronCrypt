@@ -382,7 +382,7 @@ private fun TitleOverlay(
                     color = AgedParchment
                 )
                 Text(
-                    text = stringResource(R.string.title_exynos_tag),
+                    text = stringResource(R.string.title_rendering_tag),
                     style = MaterialTheme.typography.labelMedium,
                     color = VitalEmerald
                 )
