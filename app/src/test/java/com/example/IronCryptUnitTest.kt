@@ -2,7 +2,7 @@ package com.example
 
 import com.example.data.GraphicsSettings
 import com.example.game.engine.EnemyKind
-import com.example.game.engine.ExynosQualityGovernor
+import com.example.game.engine.AdaptiveQualityGovernor
 import com.example.game.engine.GameSimulation
 import com.example.game.engine.DungeonMap
 import com.example.game.engine.PropKind
@@ -25,7 +25,7 @@ class IronCryptUnitTest {
 
     @Test
     fun qualityGovernorStepsDownAndBackUpInAutoMode() {
-        val gov = ExynosQualityGovernor()
+        val gov = AdaptiveQualityGovernor()
         gov.mode = QualityMode.AUTO
         assertEquals(QualityTier.HIGH, gov.activeTier)
 
@@ -47,7 +47,7 @@ class IronCryptUnitTest {
 
     @Test
     fun presetAndCustomOverridesResolveRenderConfigAccurately() {
-        val gov = ExynosQualityGovernor()
+        val gov = AdaptiveQualityGovernor()
 
         // Low preset disables shadows, torch halos, and lighting shader strength
         gov.customSettings = GraphicsSettings.forPreset(QualityMode.LOW)
@@ -104,7 +104,7 @@ class IronCryptUnitTest {
     @Test
     fun miniMapFogOfWarAndQuestMarkersUpdateDynamically() {
         val sim = GameSimulation()
-        val gov = ExynosQualityGovernor()
+        val gov = AdaptiveQualityGovernor()
         sim.resetRun(GamePhase.PLAYING)
 
         // Starting tile area is discovered; the distant Sanctum remains shrouded.
