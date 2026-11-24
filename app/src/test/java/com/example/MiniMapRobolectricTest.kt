@@ -7,7 +7,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import com.example.game.engine.ExynosQualityGovernor
+import com.example.game.engine.AdaptiveQualityGovernor
 import com.example.game.engine.GameSimulation
 import com.example.game.model.GamePhase
 import com.example.game.model.MiniMapDisplayMode
@@ -30,7 +30,7 @@ class MiniMapRobolectricTest {
     @Test
     fun `tapping minimap cycles compact expanded minimized and back`() {
         val sim = GameSimulation().apply { resetRun(GamePhase.PLAYING) }
-        val gov = ExynosQualityGovernor()
+        val gov = AdaptiveQualityGovernor()
         val miniMapState = sim.buildHudSnapshot(gov, 12).miniMap
 
         var mode by mutableStateOf(MiniMapDisplayMode.COMPACT)
