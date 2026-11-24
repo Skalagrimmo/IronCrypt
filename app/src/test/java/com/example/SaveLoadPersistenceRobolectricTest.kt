@@ -153,7 +153,7 @@ class SaveLoadPersistenceRobolectricTest {
         assertEquals(1, target.bossesDefeated)
         assertEquals(1, target.enemies.count { it.active && it.kind.isBoss })
         assertEquals(DungeonMap.WIDTH * DungeonMap.HEIGHT, target.buildHudSnapshot(
-            com.example.game.engine.ExynosQualityGovernor(), 0
+            com.example.game.engine.AdaptiveQualityGovernor(), 0
         ).miniMap.discoveredMask.length)
     }
 
