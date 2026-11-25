@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.data.GraphicsSettings
+import com.example.game.engine.EnemyAttackPattern
 import com.example.game.engine.EnemyKind
 import com.example.game.engine.AdaptiveQualityGovernor
 import com.example.game.engine.GameSimulation
@@ -333,6 +334,142 @@ class IronCryptUnitTest {
         cues.clear()
         sim.drainSoundCues(cues)
         assertTrue(cues.isEmpty())
+    }
+
+    @Test
+    fun enemyKindsUseDistinctTelegraphedAttackPatterns() {
+        val cases = listOf(
+            EnemyKind.SKELETON to EnemyAttackPattern.SLASH,
+            EnemyKind.GARGOYLE to EnemyAttackPattern.POUNCE,
+            EnemyKind.AUTOMATON to EnemyAttackPattern.SLAM,
+            EnemyKind.BOSS_MECH to EnemyAttackPattern.CHARGE,
+            EnemyKind.BOSS_DEMON to EnemyAttackPattern.FIRE_FAN
+        )
+        val resolvedPatterns = mutableSetOf<EnemyAttackPattern>()
+
+        for ((kind, expectedPattern) in cases) {
+            val sim = GameSimulation()
+            sim.resetRun(GamePhase.PLAYING)
+            val enemy = prepareSingleEnemy(sim, kind)
+            val startingHp = sim.playerHp
+
+            sim.update(0.016f, QualityTier.HIGH)
+
+            assertEquals("$kind should select its own pattern", expectedPattern, enemy.attackPattern)
+            assertTrue("$kind should expose a readable windup", enemy.attackWindup > 0f)
+            assertTrue("$kind should publish a positive windup duration", enemy.attackWindupDuration > 0f)
+            assertEquals("$kind must not deal damage on telegraph start", startingHp, sim.playerHp)
+            resolvedPatterns.add(enemy.attackPattern)
+        }
+
+        assertEquals(5, resolvedPatterns.size)
+    }
+
+    @Test
+    fun committedMeleeAndAreaAttacksCanBeEvaded() {
+        // Step behind the skeleton after it commits to a frontal slash.
+        run {
+            val sim = GameSimulation()
+            sim.resetRun(GamePhase.PLAYING)
+            val enemy = prepareSingleEnemy(sim, EnemyKind.SKELETON)
+            val startingHp = sim.playerHp
+            sim.update(0.016f, QualityTier.HIGH)
+            assertEquals(EnemyAttackPattern.SLASH, enemy.attackPattern)
+
+            sim.playerX = enemy.x + 0.76f
+            repeat(14) { sim.update(0.05f, QualityTier.HIGH) }
+            assertEquals(startingHp, sim.playerHp)
+        }
+
+        // The gargoyle lands at the location it marked, not the player's new position.
+        run {
+            val sim = GameSimulation()
+            sim.resetRun(GamePhase.PLAYING)
+            val enemy = prepareSingleEnemy(sim, EnemyKind.GARGOYLE)
+            val targetX = enemy.attackTargetX
+            val targetY = enemy.attackTargetY
+            val startingHp = sim.playerHp
+            sim.update(0.016f, QualityTier.HIGH)
+            assertEquals(EnemyAttackPattern.POUNCE, enemy.attackPattern)
+
+            sim.playerX = targetX + 2.0f
+            sim.playerY = targetY
+            repeat(22) { sim.update(0.05f, QualityTier.HIGH) }
+            assertEquals(startingHp, sim.playerHp)
+        }
+
+        // The automaton's slow slam has a broad but finite radius.
+        run {
+            val sim = GameSimulation()
+            sim.resetRun(GamePhase.PLAYING)
+            val enemy = prepareSingleEnemy(sim, EnemyKind.AUTOMATON)
+            val startingHp = sim.playerHp
+            sim.update(0.016f, QualityTier.HIGH)
+            assertEquals(EnemyAttackPattern.SLAM, enemy.attackPattern)
+
+            sim.playerX = enemy.x + 2.6f
+            repeat(25) { sim.update(0.05f, QualityTier.HIGH) }
+            assertEquals(startingHp, sim.playerHp)
+        }
+
+        // The boss charge follows its announced lane; a perpendicular sidestep avoids it.
+        run {
+            val sim = GameSimulation()
+            sim.resetRun(GamePhase.PLAYING)
+            val enemy = prepareSingleEnemy(sim, EnemyKind.BOSS_MECH)
+            val startingHp = sim.playerHp
+            sim.update(0.016f, QualityTier.HIGH)
+            assertEquals(EnemyAttackPattern.CHARGE, enemy.attackPattern)
+
+            sim.playerY += 1.25f
+            repeat(28) { sim.update(0.05f, QualityTier.HIGH) }
+            assertEquals(startingHp, sim.playerHp)
+        }
+    }
+
+    @Test
+    fun demonFanLaunchesFiveProjectilesAlongItsTelegraphedLanes() {
+        val sim = GameSimulation()
+        sim.resetRun(GamePhase.PLAYING)
+        val enemy = prepareSingleEnemy(sim, EnemyKind.BOSS_DEMON)
+        val startingHp = sim.playerHp
+
+        sim.update(0.016f, QualityTier.HIGH)
+        assertEquals(EnemyAttackPattern.FIRE_FAN, enemy.attackPattern)
+        assertEquals(0, sim.projectiles.count { it.active })
+        assertEquals(startingHp, sim.playerHp)
+
+        // Evade the point the demon aimed at, then let the committed fan resolve.
+        sim.playerY += 2.0f
+        repeat(20) { sim.update(0.05f, QualityTier.HIGH) }
+
+        assertEquals(EnemyAttackPattern.NONE, enemy.attackPattern)
+        assertEquals(5, sim.projectiles.count { it.active && !it.fromPlayer })
+        assertEquals(startingHp, sim.playerHp)
+    }
+
+    private fun prepareSingleEnemy(sim: GameSimulation, kind: EnemyKind): com.example.game.engine.EnemyActor {
+        sim.enemies.forEach { it.active = false }
+        sim.projectiles.forEach { it.active = false }
+        val enemy = sim.enemies[0]
+        enemy.active = true
+        enemy.kind = kind
+        enemy.x = sim.playerX + 0.72f
+        enemy.y = sim.playerY
+        enemy.hp = kind.maxHp
+        enemy.maxHp = kind.maxHp
+        enemy.facing = com.example.game.model.Direction.WEST
+        enemy.attackWindup = 0f
+        enemy.attackWindupDuration = 0f
+        enemy.attackCooldown = 0f
+        enemy.attackPattern = EnemyAttackPattern.NONE
+        enemy.attackDirX = -1f
+        enemy.attackDirY = 0f
+        enemy.attackTargetX = sim.playerX
+        enemy.attackTargetY = sim.playerY
+        enemy.hitFlash = 0f
+        enemy.animTime = 0f
+        return enemy
     }
 
     @Test
