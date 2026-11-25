@@ -20,6 +20,7 @@ import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
@@ -228,6 +229,7 @@ class IronCryptRenderer(
         if (config.enableGroundShadows) {
             drawGroundShadows(cx, cy, halfW, halfH)
         }
+        drawEnemyTelegraphs(cx, cy, halfW, halfH)
         drawEnemyHealthBars()
         batcher.flush()
 
@@ -566,6 +568,143 @@ class IronCryptRenderer(
             rect = sprite.rect,
             flash = e.hitFlash,
             flipX = flipX
+        )
+    }
+
+    /**
+     * Ground warnings are drawn before projectiles and actors so the player can read
+     * the committed attack lane/area without hiding the enemy or the world.
+     */
+    private fun drawEnemyTelegraphs(cx: Float, cy: Float, halfW: Float, halfH: Float) {
+        for (e in simulation.enemies) {
+            if (!e.active || e.attackWindup <= 0f || e.attackPattern == EnemyAttackPattern.NONE) continue
+            val pulse = 0.82f + sin(simulation.globalTime * 17f) * 0.12f
+            val progress = if (e.attackWindupDuration > 0f) {
+                (1f - e.attackWindup / e.attackWindupDuration).coerceIn(0f, 1f)
+            } else 0f
+            val alpha = (0.34f + progress * 0.28f) * pulse
+
+            when (e.attackPattern) {
+                EnemyAttackPattern.NONE -> Unit
+
+                EnemyAttackPattern.SLASH -> {
+                    // A short red line shows the skeleton's locked frontal arc.
+                    drawTelegraphRay(
+                        e.x + e.attackDirX * 0.42f,
+                        e.y + e.attackDirY * 0.42f,
+                        e.attackDirX,
+                        e.attackDirY,
+                        length = 1.62f,
+                        dots = 4,
+                        diameter = 0.48f,
+                        r = 1f, g = 0.10f, b = 0.07f, a = alpha,
+                        cx = cx, cy = cy, halfW = halfW, halfH = halfH
+                    )
+                }
+
+                EnemyAttackPattern.POUNCE -> {
+                    // This fixed circle is the gargoyle's take-off target, not the live hero position.
+                    drawTelegraphDisc(
+                        e.attackTargetX, e.attackTargetY, 2.05f,
+                        1f, 0.24f, 0.06f, alpha,
+                        cx, cy, halfW, halfH
+                    )
+                    drawTelegraphDisc(
+                        e.attackTargetX, e.attackTargetY, 0.52f,
+                        1f, 0.58f, 0.18f, alpha * 0.72f,
+                        cx, cy, halfW, halfH
+                    )
+                }
+
+                EnemyAttackPattern.SLAM -> {
+                    // Three soft rings communicate the automaton's broad impact radius.
+                    drawTelegraphDisc(e.x, e.y, 4.05f, 1f, 0.36f, 0.06f, alpha * 0.48f, cx, cy, halfW, halfH)
+                    drawTelegraphDisc(e.x, e.y, 2.90f, 1f, 0.48f, 0.08f, alpha * 0.62f, cx, cy, halfW, halfH)
+                    drawTelegraphDisc(e.x, e.y, 1.35f, 1f, 0.64f, 0.12f, alpha * 0.78f, cx, cy, halfW, halfH)
+                }
+
+                EnemyAttackPattern.CHARGE -> {
+                    // A dotted crimson lane shows the boss's committed charge direction.
+                    drawTelegraphRay(
+                        e.x, e.y, e.attackDirX, e.attackDirY,
+                        length = 4.18f,
+                        dots = 9,
+                        diameter = 0.52f,
+                        r = 1f, g = 0.06f, b = 0.04f, a = alpha,
+                        cx = cx, cy = cy, halfW = halfW, halfH = halfH
+                    )
+                }
+
+                EnemyAttackPattern.FIRE_FAN -> {
+                    // Five violet lanes map directly to the five fireballs released at impact.
+                    val baseAngle = atan2(e.attackDirY.toDouble(), e.attackDirX.toDouble()).toFloat()
+                    for (lane in -2..2) {
+                        val angle = baseAngle + lane * 0.20f
+                        drawTelegraphRay(
+                            e.x, e.y, cos(angle), sin(angle),
+                            length = 3.25f,
+                            dots = 3,
+                            diameter = 0.34f,
+                            r = 0.72f, g = 0.22f, b = 1f, a = alpha * 0.86f,
+                            cx = cx, cy = cy, halfW = halfW, halfH = halfH
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun drawTelegraphRay(
+        startX: Float,
+        startY: Float,
+        dirX: Float,
+        dirY: Float,
+        length: Float,
+        dots: Int,
+        diameter: Float,
+        r: Float,
+        g: Float,
+        b: Float,
+        a: Float,
+        cx: Float,
+        cy: Float,
+        halfW: Float,
+        halfH: Float
+    ) {
+        for (i in 1..dots) {
+            val distance = length * i.toFloat() / dots.toFloat()
+            drawTelegraphDisc(
+                startX + dirX * distance,
+                startY + dirY * distance,
+                diameter,
+                r, g, b, a,
+                cx, cy, halfW, halfH
+            )
+        }
+    }
+
+    private fun drawTelegraphDisc(
+        worldX: Float,
+        worldY: Float,
+        diameter: Float,
+        r: Float,
+        g: Float,
+        b: Float,
+        a: Float,
+        cx: Float,
+        cy: Float,
+        halfW: Float,
+        halfH: Float
+    ) {
+        if (abs(worldX - cx) > halfW + diameter || abs(worldY - cy) > halfH + diameter) return
+        val radius = diameter * 0.5f
+        batcher.drawSprite(
+            x = worldX - radius,
+            y = worldY - radius,
+            w = diameter,
+            h = diameter,
+            rect = fullUvRect,
+            r = r, g = g, b = b, a = a
         )
     }
 
