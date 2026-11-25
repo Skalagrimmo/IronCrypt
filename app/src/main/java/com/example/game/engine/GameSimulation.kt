@@ -32,6 +32,11 @@ import kotlin.math.floor
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/**
+ * Enemy dimensions are visual sprite sizes in world tiles; radius is the smaller floor-plane
+ * collision footprint. Large sprites deliberately do not use a full-width collision radius,
+ * so bosses and winged enemies remain navigable in the existing corridors.
+ */
 enum class EnemyKind(
     val maxHp: Int,
     val atk: Int,
@@ -42,11 +47,11 @@ enum class EnemyKind(
     val isBoss: Boolean,
     val isRanged: Boolean
 ) {
-    SKELETON(48, 12, 2.55f, 0.34f, 0.72f, 1.15f, false, false),
-    GARGOYLE(68, 16, 3.05f, 0.40f, 1.05f, 1.05f, false, false),
-    AUTOMATON(115, 22, 1.85f, 0.46f, 1.05f, 1.28f, false, false),
-    BOSS_MECH(340, 28, 1.65f, 0.56f, 1.45f, 1.52f, true, false),
-    BOSS_DEMON(280, 24, 2.25f, 0.52f, 1.38f, 1.45f, true, true)
+    SKELETON(48, 12, 2.55f, 0.34f, 0.68f, 1.08f, false, false),
+    GARGOYLE(68, 16, 3.05f, 0.44f, 1.55f, 1.42f, false, false),
+    AUTOMATON(115, 22, 1.85f, 0.50f, 1.30f, 1.58f, false, false),
+    BOSS_MECH(340, 28, 1.65f, 0.58f, 2.02f, 2.18f, true, false),
+    BOSS_DEMON(280, 24, 2.25f, 0.56f, 2.18f, 2.12f, true, true)
 }
 
 /** A telegraphed enemy move with its own shape, timing and resolution rule. */
