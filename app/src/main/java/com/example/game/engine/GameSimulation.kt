@@ -33,13 +33,10 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Enemy dimensions are visual sprite sizes in world tiles; radius is the smaller floor-plane
- * collision footprint. Large sprites deliberately do not use a full-width collision radius,
- * so bosses and winged enemies remain navigable in the existing corridors.
- */
-/**
  * Enemy profiles keep screen-space silhouette, floor collision and ground feedback separate.
- * Collision radii never exceed the 0.58-tile navigation clearance used by the shared BFS field.
+ * scaleW/scaleH are visible world-space sprite sizes; radius is the smaller floor-plane footprint.
+ * Collision radii never exceed the 0.58-tile navigation clearance used by the shared BFS field,
+ * so bosses and winged enemies remain navigable in existing corridors.
  */
 enum class EnemyKind(
     val maxHp: Int,
@@ -1108,12 +1105,12 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         var hitPlayer = false
 
         // Move along the announced lane in short collision-checked steps.
+        val chargeHitRadius = 0.44f + e.kind.radius * 0.48f
         for (step in 1..22) {
             val nextX = startX + e.attackDirX * (step * 0.19f)
             val nextY = startY + e.attackDirY * (step * 0.19f)
             if (!map.isWalkable(nextX, nextY, e.kind.radius)) break
 
-            val chargeHitRadius = 0.44f + e.kind.radius * 0.48f
             if (!hitPlayer && distancePointToSegmentSquared(
                     playerX, playerY, previousX, previousY, nextX, nextY
                 ) <= chargeHitRadius * chargeHitRadius
