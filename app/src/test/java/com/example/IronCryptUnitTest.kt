@@ -341,7 +341,7 @@ class IronCryptUnitTest {
         val cases = listOf(
             Triple(EnemyKind.SKELETON, EnemyAttackPattern.SLASH, 0.72f),
             Triple(EnemyKind.GARGOYLE, EnemyAttackPattern.POUNCE, 2.40f),
-            Triple(EnemyKind.AUTOMATON, EnemyAttackPattern.SLAM, 0.72f),
+            Triple(EnemyKind.AUTOMATON, EnemyAttackPattern.SLAM, 1.05f),
             Triple(EnemyKind.BOSS_MECH, EnemyAttackPattern.CHARGE, 3.00f),
             Triple(EnemyKind.BOSS_DEMON, EnemyAttackPattern.FIRE_FAN, 4.00f)
         )
@@ -369,6 +369,7 @@ class IronCryptUnitTest {
     fun enemiesSelectSecondaryMovesAtCloseRange() {
         val cases = listOf(
             EnemyKind.GARGOYLE to EnemyAttackPattern.SLASH,
+            EnemyKind.AUTOMATON to EnemyAttackPattern.BASH,
             EnemyKind.BOSS_MECH to EnemyAttackPattern.SLAM,
             EnemyKind.BOSS_DEMON to EnemyAttackPattern.FIRE_ORB
         )
@@ -437,11 +438,25 @@ class IronCryptUnitTest {
             assertEquals(startingHp, sim.playerHp)
         }
 
+        // The automaton's close punch is directional and can be avoided by stepping behind it.
+        run {
+            val sim = GameSimulation()
+            sim.resetRun(GamePhase.PLAYING)
+            val enemy = prepareSingleEnemy(sim, EnemyKind.AUTOMATON, 0.72f)
+            val startingHp = sim.playerHp
+            sim.update(0.016f, QualityTier.HIGH)
+            assertEquals(EnemyAttackPattern.BASH, enemy.attackPattern)
+
+            sim.playerX = enemy.x + 0.78f
+            repeat(14) { sim.update(0.05f, QualityTier.HIGH) }
+            assertEquals(startingHp, sim.playerHp)
+        }
+
         // The automaton's slow slam has a broad but finite radius.
         run {
             val sim = GameSimulation()
             sim.resetRun(GamePhase.PLAYING)
-            val enemy = prepareSingleEnemy(sim, EnemyKind.AUTOMATON)
+            val enemy = prepareSingleEnemy(sim, EnemyKind.AUTOMATON, 1.05f)
             val startingHp = sim.playerHp
             sim.update(0.016f, QualityTier.HIGH)
             assertEquals(EnemyAttackPattern.SLAM, enemy.attackPattern)
