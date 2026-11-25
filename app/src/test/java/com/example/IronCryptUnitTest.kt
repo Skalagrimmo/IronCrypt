@@ -493,8 +493,8 @@ class IronCryptUnitTest {
         assertEquals(0, sim.projectiles.count { it.active })
         assertEquals(startingHp, sim.playerHp)
 
-        // Evade the point the demon aimed at, then let the committed fan resolve.
-        sim.playerY += 2.0f
+        // Sidestep beyond the full five-lane spread before the committed fan resolves.
+        sim.playerY += 3.0f
         repeat(20) { sim.update(0.05f, QualityTier.HIGH) }
 
         assertEquals(EnemyAttackPattern.NONE, enemy.attackPattern)
