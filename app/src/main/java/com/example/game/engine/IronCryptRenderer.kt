@@ -608,6 +608,21 @@ class IronCryptRenderer(
                     }
                 }
 
+                EnemyAttackPattern.BASH -> {
+                    // A short amber lane warns of the automaton's close-range punch.
+                    drawTelegraphRay(
+                        e.x + e.attackDirX * 0.30f,
+                        e.y + e.attackDirY * 0.30f,
+                        e.attackDirX,
+                        e.attackDirY,
+                        length = 1.05f,
+                        dots = 3,
+                        diameter = 0.48f,
+                        r = 1f, g = 0.54f, b = 0.08f, a = alpha,
+                        cx = cx, cy = cy, halfW = halfW, halfH = halfH
+                    )
+                }
+
                 EnemyAttackPattern.POUNCE -> {
                     // This fixed circle is the gargoyle's take-off target, not the live hero position.
                     drawTelegraphDisc(
