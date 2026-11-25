@@ -927,14 +927,30 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         e.attackTargetX = playerX
         e.attackTargetY = playerY
 
-        val (pattern, windup) = when (e.kind) {
-            EnemyKind.SKELETON -> EnemyAttackPattern.SLASH to 0.46f
-            EnemyKind.GARGOYLE -> EnemyAttackPattern.POUNCE to 0.78f
-            EnemyKind.AUTOMATON -> EnemyAttackPattern.SLAM to 0.92f
-            EnemyKind.BOSS_MECH -> EnemyAttackPattern.CHARGE to 1.02f
-            EnemyKind.BOSS_DEMON -> EnemyAttackPattern.FIRE_FAN to 0.84f
+        // Keep the AI hot path allocation-free: no temporary Pair/collection per attack.
+        val windup: Float
+        when (e.kind) {
+            EnemyKind.SKELETON -> {
+                e.attackPattern = EnemyAttackPattern.SLASH
+                windup = 0.46f
+            }
+            EnemyKind.GARGOYLE -> {
+                e.attackPattern = EnemyAttackPattern.POUNCE
+                windup = 0.78f
+            }
+            EnemyKind.AUTOMATON -> {
+                e.attackPattern = EnemyAttackPattern.SLAM
+                windup = 0.92f
+            }
+            EnemyKind.BOSS_MECH -> {
+                e.attackPattern = EnemyAttackPattern.CHARGE
+                windup = 1.02f
+            }
+            EnemyKind.BOSS_DEMON -> {
+                e.attackPattern = EnemyAttackPattern.FIRE_FAN
+                windup = 0.84f
+            }
         }
-        e.attackPattern = pattern
         e.attackWindup = windup
         e.attackWindupDuration = windup
     }
