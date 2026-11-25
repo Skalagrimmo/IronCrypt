@@ -37,21 +37,60 @@ import kotlin.math.sqrt
  * collision footprint. Large sprites deliberately do not use a full-width collision radius,
  * so bosses and winged enemies remain navigable in the existing corridors.
  */
+/**
+ * Enemy profiles keep screen-space silhouette, floor collision and ground feedback separate.
+ * Collision radii never exceed the 0.58-tile navigation clearance used by the shared BFS field.
+ */
 enum class EnemyKind(
     val maxHp: Int,
     val atk: Int,
     val speed: Float,
+    /** Circular floor-plane collision footprint; intentionally smaller than the visible sprite. */
     val radius: Float,
+    /** Visible world-space sprite dimensions, in dungeon tiles. */
     val scaleW: Float,
     val scaleH: Float,
+    /** Body-focused feedback dimensions; a gargoyle's wings do not stretch its HP bar. */
+    val healthBarW: Float,
+    /** Ground shadow dimensions, independent of the upper-body sprite silhouette. */
+    val shadowW: Float,
+    val shadowH: Float,
     val isBoss: Boolean,
     val isRanged: Boolean
 ) {
-    SKELETON(48, 12, 2.55f, 0.34f, 0.68f, 1.08f, false, false),
-    GARGOYLE(68, 16, 3.05f, 0.44f, 1.55f, 1.42f, false, false),
-    AUTOMATON(115, 22, 1.85f, 0.50f, 1.30f, 1.58f, false, false),
-    BOSS_MECH(340, 28, 1.65f, 0.58f, 2.02f, 2.18f, true, false),
-    BOSS_DEMON(280, 24, 2.25f, 0.56f, 2.18f, 2.12f, true, true)
+    // Hero baseline is approximately 0.82 x 1.16 tiles when facing north/south.
+    SKELETON(
+        maxHp = 48, atk = 12, speed = 2.55f,
+        radius = 0.28f, scaleW = 0.62f, scaleH = 0.94f,
+        healthBarW = 0.48f, shadowW = 0.54f, shadowH = 0.24f,
+        isBoss = false, isRanged = false
+    ),
+    // The wing span is the defining dimension; its feet still occupy a compact footprint.
+    GARGOYLE(
+        maxHp = 68, atk = 16, speed = 3.05f,
+        radius = 0.42f, scaleW = 1.78f, scaleH = 1.44f,
+        healthBarW = 0.88f, shadowW = 1.46f, shadowH = 0.34f,
+        isBoss = false, isRanged = false
+    ),
+    // Tall, heavy ground machine with a wider collision base than humanoid enemies.
+    AUTOMATON(
+        maxHp = 115, atk = 22, speed = 1.85f,
+        radius = 0.52f, scaleW = 1.48f, scaleH = 1.82f,
+        healthBarW = 1.02f, shadowW = 1.26f, shadowH = 0.40f,
+        isBoss = false, isRanged = false
+    ),
+    BOSS_MECH(
+        maxHp = 340, atk = 28, speed = 1.65f,
+        radius = 0.58f, scaleW = 2.34f, scaleH = 2.50f,
+        healthBarW = 1.78f, shadowW = 1.92f, shadowH = 0.52f,
+        isBoss = true, isRanged = false
+    ),
+    BOSS_DEMON(
+        maxHp = 280, atk = 24, speed = 2.25f,
+        radius = 0.58f, scaleW = 2.48f, scaleH = 2.62f,
+        healthBarW = 1.88f, shadowW = 2.06f, shadowH = 0.56f,
+        isBoss = true, isRanged = true
+    )
 }
 
 /** A telegraphed enemy move with its own shape, timing and resolution rule. */
@@ -999,7 +1038,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 val dot = if (dist > 0.001f) {
                     (dx * e.attackDirX + dy * e.attackDirY) / dist
                 } else 1f
-                if (dist <= 1.68f && dot >= 0.34f &&
+                if (dist <= 1.40f + e.kind.radius && dot >= 0.34f &&
                     hasLineOfSight(e.x, e.y, playerX, playerY)
                 ) {
                     damagePlayer(e.kind.atk, config)
@@ -1015,7 +1054,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 val dot = if (dist > 0.001f) {
                     (dx * e.attackDirX + dy * e.attackDirY) / dist
                 } else 1f
-                if (dist <= 1.38f && dot >= 0.58f &&
+                if (dist <= 0.86f + e.kind.radius && dot >= 0.58f &&
                     hasLineOfSight(e.x, e.y, playerX, playerY)
                 ) {
                     damagePlayer(e.kind.atk + 2, config)
@@ -1033,7 +1072,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 }
                 val dx = playerX - e.attackTargetX
                 val dy = playerY - e.attackTargetY
-                if (dx * dx + dy * dy <= 0.98f * 0.98f) {
+                val impactRadius = 0.56f + e.kind.radius
+                if (dx * dx + dy * dy <= impactRadius * impactRadius) {
                     damagePlayer(e.kind.atk + 3, config)
                 }
                 spawnParticleBurst(e.attackTargetX, e.attackTargetY, 12, 0.82f, 0.42f, 0.18f, config)
@@ -1043,7 +1083,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 // The automaton's slow impact covers a circle, not just its facing.
                 val dx = playerX - e.x
                 val dy = playerY - e.y
-                if (dx * dx + dy * dy <= 1.95f * 1.95f &&
+                val impactRadius = 1.65f + e.kind.radius * 0.58f
+                if (dx * dx + dy * dy <= impactRadius * impactRadius &&
                     hasLineOfSight(e.x, e.y, playerX, playerY)
                 ) {
                     damagePlayer(e.kind.atk, config)
@@ -1072,9 +1113,10 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             val nextY = startY + e.attackDirY * (step * 0.19f)
             if (!map.isWalkable(nextX, nextY, e.kind.radius)) break
 
+            val chargeHitRadius = 0.44f + e.kind.radius * 0.48f
             if (!hitPlayer && distancePointToSegmentSquared(
                     playerX, playerY, previousX, previousY, nextX, nextY
-                ) <= 0.72f * 0.72f
+                ) <= chargeHitRadius * chargeHitRadius
             ) {
                 damagePlayer(e.kind.atk + 5, config)
                 hitPlayer = true
