@@ -337,26 +337,40 @@ class IronCryptUnitTest {
     }
 
     @Test
-    fun enemyVisualProfilesHaveClearSizeHierarchy() {
-        // The basic skeleton is smaller than the hero's established ~1.2-tile silhouette.
-        assertTrue(EnemyKind.SKELETON.scaleH < 1.2f)
+    fun enemyVisualProfilesUseDistinctWorldScaleAndSafeFootprints() {
+        val heroHeight = 1.16f
 
-        // The gargoyle's wings create a clearly wider silhouette than the ground automaton.
-        assertTrue(EnemyKind.GARGOYLE.scaleW > EnemyKind.AUTOMATON.scaleW)
-        assertTrue(EnemyKind.GARGOYLE.scaleW >= 1.5f)
+        // The skeleton is visibly below human scale, not another human-height actor.
+        assertTrue(EnemyKind.SKELETON.scaleH <= heroHeight * 0.82f)
 
-        // The automaton is a heavier, taller-than-human ground unit.
-        assertTrue(EnemyKind.AUTOMATON.scaleH >= 1.5f)
+        // The gargoyle reads as a winged silhouette, substantially wider than the automaton.
+        assertTrue(EnemyKind.GARGOYLE.scaleW >= EnemyKind.AUTOMATON.scaleW * 1.15f)
+        assertTrue(EnemyKind.GARGOYLE.scaleH > heroHeight)
 
-        // Both bosses are around twice the height of a normal humanoid enemy.
-        assertTrue(EnemyKind.BOSS_MECH.scaleH >= 2.0f)
-        assertTrue(EnemyKind.BOSS_DEMON.scaleH >= 2.0f)
-        assertTrue(EnemyKind.BOSS_DEMON.scaleW >= 2.0f)
+        // The automaton reads as a heavy, tall ground machine.
+        assertTrue(EnemyKind.AUTOMATON.scaleH >= heroHeight * 1.5f)
 
-        // Their floor collision footprints grow modestly, not to the full sprite width.
-        assertTrue(EnemyKind.GARGOYLE.radius > EnemyKind.SKELETON.radius)
-        assertTrue(EnemyKind.BOSS_MECH.radius > EnemyKind.AUTOMATON.radius)
-        assertTrue(EnemyKind.BOSS_MECH.radius < EnemyKind.BOSS_MECH.scaleW * 0.5f)
+        // Bosses occupy more than twice the hero's height, with the demon the broader profile.
+        assertTrue(EnemyKind.BOSS_MECH.scaleH >= heroHeight * 2.1f)
+        assertTrue(EnemyKind.BOSS_DEMON.scaleH >= heroHeight * 2.1f)
+        assertTrue(EnemyKind.BOSS_DEMON.scaleW > EnemyKind.BOSS_MECH.scaleW)
+
+        // Body feedback grows with the visual class; a gargoyle's wings do not stretch its HP bar.
+        assertTrue(EnemyKind.SKELETON.healthBarW < EnemyKind.GARGOYLE.healthBarW)
+        assertTrue(EnemyKind.GARGOYLE.healthBarW < EnemyKind.AUTOMATON.healthBarW)
+        assertTrue(EnemyKind.AUTOMATON.healthBarW < EnemyKind.BOSS_MECH.healthBarW)
+        assertTrue(EnemyKind.BOSS_MECH.healthBarW < EnemyKind.BOSS_DEMON.healthBarW)
+
+        // Ground shadows communicate the mass of each class independently of sprite height.
+        assertTrue(EnemyKind.SKELETON.shadowW < EnemyKind.GARGOYLE.shadowW)
+        assertTrue(EnemyKind.AUTOMATON.shadowW < EnemyKind.BOSS_MECH.shadowW)
+        assertTrue(EnemyKind.BOSS_MECH.shadowH < EnemyKind.BOSS_DEMON.shadowH)
+
+        // Visible width must not become a corridor-sized collision footprint.
+        val allKinds = EnemyKind.values()
+        assertTrue(allKinds.all { it.radius <= 0.58f })
+        assertTrue(allKinds.all { it.radius < it.scaleW * 0.5f })
+        assertTrue(EnemyKind.GARGOYLE.radius < EnemyKind.GARGOYLE.scaleW * 0.30f)
     }
 
     @Test
