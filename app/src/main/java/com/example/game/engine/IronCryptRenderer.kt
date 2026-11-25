@@ -218,7 +218,7 @@ class IronCryptRenderer(
         drawSortedWorldActors(cx, cy, halfW, halfH, config)
         batcher.flush()
 
-        // 2) Pass 2: Shadows & crisp enemy HP bars (uses pure white center of glowTexId)
+        // 2) Pass 2: Shadows, enemy warning zones and crisp HP bars (soft radial glow texture)
         batcher.beginBatch(
             textureId = glowTexId,
             additive = false,
@@ -588,18 +588,24 @@ class IronCryptRenderer(
                 EnemyAttackPattern.NONE -> Unit
 
                 EnemyAttackPattern.SLASH -> {
-                    // A short red line shows the skeleton's locked frontal arc.
-                    drawTelegraphRay(
-                        e.x + e.attackDirX * 0.42f,
-                        e.y + e.attackDirY * 0.42f,
-                        e.attackDirX,
-                        e.attackDirY,
-                        length = 1.62f,
-                        dots = 4,
-                        diameter = 0.48f,
-                        r = 1f, g = 0.10f, b = 0.07f, a = alpha,
-                        cx = cx, cy = cy, halfW = halfW, halfH = halfH
-                    )
+                    // Three short red lanes show the skeleton's committed frontal sweep.
+                    val baseAngle = atan2(e.attackDirY.toDouble(), e.attackDirX.toDouble()).toFloat()
+                    for (lane in -1..1) {
+                        val angle = baseAngle + lane * 0.66f
+                        val dirX = cos(angle)
+                        val dirY = sin(angle)
+                        drawTelegraphRay(
+                            e.x + dirX * 0.42f,
+                            e.y + dirY * 0.42f,
+                            dirX,
+                            dirY,
+                            length = 1.16f,
+                            dots = 3,
+                            diameter = 0.44f,
+                            r = 1f, g = 0.10f, b = 0.07f, a = alpha,
+                            cx = cx, cy = cy, halfW = halfW, halfH = halfH
+                        )
+                    }
                 }
 
                 EnemyAttackPattern.POUNCE -> {
