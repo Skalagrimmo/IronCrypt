@@ -656,6 +656,18 @@ class IronCryptRenderer(
                         )
                     }
                 }
+
+                EnemyAttackPattern.FIRE_ORB -> {
+                    // A single heavy orb is aimed at close range; its lane is narrower and brighter.
+                    drawTelegraphRay(
+                        e.x, e.y, e.attackDirX, e.attackDirY,
+                        length = 3.0f,
+                        dots = 5,
+                        diameter = 0.46f,
+                        r = 0.92f, g = 0.16f, b = 1f, a = alpha
+                    , cx = cx, cy = cy, halfW = halfW, halfH = halfH
+                    )
+                }
             }
         }
     }
