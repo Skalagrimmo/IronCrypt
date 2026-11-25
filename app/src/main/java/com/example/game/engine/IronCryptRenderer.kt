@@ -664,8 +664,8 @@ class IronCryptRenderer(
                         length = 3.0f,
                         dots = 5,
                         diameter = 0.46f,
-                        r = 0.92f, g = 0.16f, b = 1f, a = alpha
-                    , cx = cx, cy = cy, halfW = halfW, halfH = halfH
+                        r = 0.92f, g = 0.16f, b = 1f, a = alpha,
+                        cx = cx, cy = cy, halfW = halfW, halfH = halfH
                     )
                 }
             }
