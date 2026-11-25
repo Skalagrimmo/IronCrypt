@@ -904,7 +904,11 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             }
 
             if (dist < aggroRange) {
-                e.facing = Direction.fromVector(dx, dy, e.facing)
+                e.facing = if (abs(dx) > abs(dy)) {
+                    if (dx >= 0f) Direction.EAST else Direction.WEST
+                } else {
+                    if (dy >= 0f) Direction.SOUTH else Direction.NORTH
+                }
                 val desiredRange = when (e.kind) {
                     EnemyKind.SKELETON -> 0.98f
                     EnemyKind.GARGOYLE -> 3.20f
