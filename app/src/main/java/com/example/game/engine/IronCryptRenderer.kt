@@ -352,7 +352,11 @@ class IronCryptRenderer(
         for (i in simulation.enemies.indices) {
             val e = simulation.enemies[i]
             if (!e.active) continue
-            if (abs(e.x - cx) > halfW + 2f || abs(e.y - cy) > halfH + 2f) continue
+            val horizontalMargin = maxOf(2f, e.kind.scaleW * 0.5f + 0.10f)
+            val verticalMargin = maxOf(2f, e.kind.scaleH * 0.82f + 0.10f)
+            if (abs(e.x - cx) > halfW + horizontalMargin ||
+                abs(e.y - cy) > halfH + verticalMargin
+            ) continue
             if (!e.kind.isBoss && entityBudgetUsed >= config.maxSimultaneousEntities) continue
             sortKeys[renderableCount] = e.y
             sortTypes[renderableCount] = 1
@@ -594,14 +598,15 @@ class IronCryptRenderer(
                         val angle = baseAngle + lane * 0.66f
                         val dirX = cos(angle)
                         val dirY = sin(angle)
+                        val originOffset = e.kind.radius + 0.08f
                         drawTelegraphRay(
-                            e.x + dirX * 0.42f,
-                            e.y + dirY * 0.42f,
+                            e.x + dirX * originOffset,
+                            e.y + dirY * originOffset,
                             dirX,
                             dirY,
-                            length = 1.16f,
+                            length = 1.16f + e.kind.radius * 0.15f,
                             dots = 3,
-                            diameter = 0.44f,
+                            diameter = 0.36f + e.kind.radius * 0.28f,
                             r = 1f, g = 0.10f, b = 0.07f, a = alpha,
                             cx = cx, cy = cy, halfW = halfW, halfH = halfH
                         )
@@ -611,13 +616,13 @@ class IronCryptRenderer(
                 EnemyAttackPattern.BASH -> {
                     // A short amber lane warns of the automaton's close-range punch.
                     drawTelegraphRay(
-                        e.x + e.attackDirX * 0.30f,
-                        e.y + e.attackDirY * 0.30f,
+                        e.x + e.attackDirX * (e.kind.radius + 0.08f),
+                        e.y + e.attackDirY * (e.kind.radius + 0.08f),
                         e.attackDirX,
                         e.attackDirY,
-                        length = 1.05f,
+                        length = 1.05f + e.kind.radius * 0.18f,
                         dots = 3,
-                        diameter = 0.48f,
+                        diameter = 0.42f + e.kind.radius * 0.24f,
                         r = 1f, g = 0.54f, b = 0.08f, a = alpha,
                         cx = cx, cy = cy, halfW = halfW, halfH = halfH
                     )
@@ -630,18 +635,20 @@ class IronCryptRenderer(
                         1f, 0.24f, 0.06f, alpha,
                         cx, cy, halfW, halfH
                     )
+                    val impactRadius = 0.56f + e.kind.radius
                     drawTelegraphDisc(
-                        e.attackTargetX, e.attackTargetY, 0.52f,
+                        e.attackTargetX, e.attackTargetY, impactRadius,
                         1f, 0.58f, 0.18f, alpha * 0.72f,
                         cx, cy, halfW, halfH
                     )
                 }
 
                 EnemyAttackPattern.SLAM -> {
-                    // Three soft rings communicate the automaton's broad impact radius.
-                    drawTelegraphDisc(e.x, e.y, 4.05f, 1f, 0.36f, 0.06f, alpha * 0.48f, cx, cy, halfW, halfH)
-                    drawTelegraphDisc(e.x, e.y, 2.90f, 1f, 0.48f, 0.08f, alpha * 0.62f, cx, cy, halfW, halfH)
-                    drawTelegraphDisc(e.x, e.y, 1.35f, 1f, 0.64f, 0.12f, alpha * 0.78f, cx, cy, halfW, halfH)
+                    // Rings are derived from the same body-aware impact radius as damage resolution.
+                    val impactRadius = 1.65f + e.kind.radius * 0.58f
+                    drawTelegraphDisc(e.x, e.y, impactRadius * 2.08f, 1f, 0.36f, 0.06f, alpha * 0.48f, cx, cy, halfW, halfH)
+                    drawTelegraphDisc(e.x, e.y, impactRadius * 1.49f, 1f, 0.48f, 0.08f, alpha * 0.62f, cx, cy, halfW, halfH)
+                    drawTelegraphDisc(e.x, e.y, impactRadius * 0.69f, 1f, 0.64f, 0.12f, alpha * 0.78f, cx, cy, halfW, halfH)
                 }
 
                 EnemyAttackPattern.CHARGE -> {
@@ -745,7 +752,7 @@ class IronCryptRenderer(
         for (e in simulation.enemies) {
             if (!e.active || e.hp >= e.maxHp) continue
             val ratio = (e.hp.toFloat() / e.maxHp.toFloat()).coerceIn(0f, 1f)
-            val bw = if (e.kind.isBoss) (e.kind.scaleW * 0.78f).coerceIn(1.55f, 1.90f) else 0.78f
+            val bw = e.kind.healthBarW
             val bx = e.x - bw * 0.5f
             val by = e.y - e.kind.scaleH * 0.92f
             // Dark frame
@@ -767,13 +774,16 @@ class IronCryptRenderer(
         )
         for (e in simulation.enemies) {
             if (!e.active) continue
-            if (abs(e.x - cx) > halfW + 1.5f || abs(e.y - cy) > halfH + 1.5f) continue
-            val sw = e.kind.scaleW * 0.82f
+            val shadowHalfW = e.kind.shadowW * 0.5f + 0.15f
+            val shadowHalfH = e.kind.shadowH * 0.5f + 0.10f
+            if (abs(e.x - cx) > halfW + shadowHalfW ||
+                abs(e.y - cy) > halfH + shadowHalfH
+            ) continue
             batcher.drawSprite(
-                x = e.x - sw * 0.5f,
-                y = e.y - 0.16f,
-                w = sw,
-                h = 0.34f,
+                x = e.x - e.kind.shadowW * 0.5f,
+                y = e.y - e.kind.shadowH * 0.47f,
+                w = e.kind.shadowW,
+                h = e.kind.shadowH,
                 rect = fullUvRect,
                 r = 0f, g = 0f, b = 0f, a = 0.45f
             )
