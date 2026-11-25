@@ -49,6 +49,16 @@ enum class EnemyKind(
     BOSS_DEMON(280, 24, 2.25f, 0.52f, 1.38f, 1.45f, true, true)
 }
 
+/** A telegraphed enemy move with its own shape, timing and resolution rule. */
+enum class EnemyAttackPattern {
+    NONE,
+    SLASH,
+    POUNCE,
+    SLAM,
+    CHARGE,
+    FIRE_FAN
+}
+
 class EnemyActor {
     var active = false
     var kind = EnemyKind.SKELETON
@@ -61,7 +71,13 @@ class EnemyActor {
     var facing = Direction.SOUTH
     var aiTimer = 0f
     var attackWindup = 0f
+    var attackWindupDuration = 0f
     var attackCooldown = 0f
+    var attackPattern = EnemyAttackPattern.NONE
+    var attackDirX = 1f
+    var attackDirY = 0f
+    var attackTargetX = 0f
+    var attackTargetY = 0f
     var hitFlash = 0f
     var animTime = 0f
 }
@@ -443,6 +459,12 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 e.facing = Direction.WEST
                 e.aiTimer = nextRand01() * 2f
                 e.attackWindup = 0f
+                e.attackWindupDuration = 0f
+                e.attackPattern = EnemyAttackPattern.NONE
+                e.attackDirX = 1f
+                e.attackDirY = 0f
+                e.attackTargetX = x
+                e.attackTargetY = y
                 e.attackCooldown = 0.6f
                 e.hitFlash = 0f
                 e.animTime = nextRand01() * 3f
@@ -856,42 +878,170 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             val dx = playerX - e.x
             val dy = playerY - e.y
             val dist = sqrt(dx * dx + dy * dy)
-            val aggroRange = if (e.kind.isBoss) 9.5f else 7.0f
+            val aggroRange = if (e.kind.isBoss) 10.5f else 7.5f
 
+            // A committed attack keeps its initial aim. The player can evade the
+            // marked lane/area instead of being tracked until the final damage frame.
             if (e.attackWindup > 0f) {
-                e.attackWindup -= dt
+                e.attackWindup = (e.attackWindup - dt).coerceAtLeast(0f)
                 e.hitFlash = 0.45f
                 if (e.attackWindup <= 0f) {
-                    if (e.kind.isRanged) {
-                        if (hasLineOfSight(e.x, e.y, playerX, playerY)) {
-                            fireEnemyProjectile(e, dx, dy, dist)
-                        }
-                    } else if (dist <= e.kind.radius + 1.05f &&
-                        hasLineOfSight(e.x, e.y, playerX, playerY)
-                    ) {
-                        damagePlayer(e.kind.atk, config)
+                    resolveEnemyAttack(e, config)
+                    e.attackCooldown = when (e.attackPattern) {
+                        EnemyAttackPattern.SLASH -> 1.30f
+                        EnemyAttackPattern.POUNCE -> 1.90f
+                        EnemyAttackPattern.SLAM -> 2.10f
+                        EnemyAttackPattern.CHARGE -> 2.55f
+                        EnemyAttackPattern.FIRE_FAN -> 1.80f
+                        EnemyAttackPattern.NONE -> 1.45f
                     }
-                    e.attackCooldown = if (e.kind.isBoss) 1.15f else 1.45f
+                    e.attackPattern = EnemyAttackPattern.NONE
+                    e.attackWindupDuration = 0f
                 }
                 continue
             }
 
             if (dist < aggroRange) {
-                e.facing = if (abs(dx) > abs(dy)) {
-                    if (dx >= 0f) Direction.EAST else Direction.WEST
-                } else {
-                    if (dy >= 0f) Direction.SOUTH else Direction.NORTH
+                e.facing = Direction.fromVector(dx, dy, e.facing)
+                val desiredRange = when (e.kind) {
+                    EnemyKind.SKELETON -> 0.98f
+                    EnemyKind.GARGOYLE -> 3.20f
+                    EnemyKind.AUTOMATON -> 1.28f
+                    EnemyKind.BOSS_MECH -> 3.75f
+                    EnemyKind.BOSS_DEMON -> 5.20f
                 }
-
-                val desiredRange = if (e.kind.isRanged) 4.4f else (e.kind.radius + 0.62f)
                 val canSeePlayer = hasLineOfSight(e.x, e.y, playerX, playerY)
                 if (dist > desiredRange || !canSeePlayer) {
                     moveEnemyAlongFlow(e, dt)
                 } else if (e.attackCooldown <= 0f) {
-                    e.attackWindup = 0.38f
+                    beginEnemyAttack(e, dx, dy, dist)
                 }
             }
         }
+    }
+
+    private fun beginEnemyAttack(e: EnemyActor, dx: Float, dy: Float, dist: Float) {
+        val invDist = if (dist > 0.001f) 1f / dist else 1f
+        e.attackDirX = dx * invDist
+        e.attackDirY = dy * invDist
+        e.attackTargetX = playerX
+        e.attackTargetY = playerY
+
+        val (pattern, windup) = when (e.kind) {
+            EnemyKind.SKELETON -> EnemyAttackPattern.SLASH to 0.46f
+            EnemyKind.GARGOYLE -> EnemyAttackPattern.POUNCE to 0.78f
+            EnemyKind.AUTOMATON -> EnemyAttackPattern.SLAM to 0.92f
+            EnemyKind.BOSS_MECH -> EnemyAttackPattern.CHARGE to 1.02f
+            EnemyKind.BOSS_DEMON -> EnemyAttackPattern.FIRE_FAN to 0.84f
+        }
+        e.attackPattern = pattern
+        e.attackWindup = windup
+        e.attackWindupDuration = windup
+    }
+
+    private fun resolveEnemyAttack(e: EnemyActor, config: RenderConfig) {
+        when (e.attackPattern) {
+            EnemyAttackPattern.NONE -> Unit
+
+            EnemyAttackPattern.SLASH -> {
+                val dx = playerX - e.x
+                val dy = playerY - e.y
+                val dist = sqrt(dx * dx + dy * dy)
+                val dot = if (dist > 0.001f) {
+                    (dx * e.attackDirX + dy * e.attackDirY) / dist
+                } else 1f
+                if (dist <= 1.68f && dot >= 0.34f &&
+                    hasLineOfSight(e.x, e.y, playerX, playerY)
+                ) {
+                    damagePlayer(e.kind.atk, config)
+                    spawnParticleBurst(playerX, playerY, 5, 0.95f, 0.24f, 0.16f, config)
+                }
+            }
+
+            EnemyAttackPattern.POUNCE -> {
+                // The gargoyle commits to the location marked at take-off.
+                val landingX = e.attackTargetX - e.attackDirX * 0.82f
+                val landingY = e.attackTargetY - e.attackDirY * 0.82f
+                if (map.isWalkable(landingX, landingY, e.kind.radius)) {
+                    e.x = landingX
+                    e.y = landingY
+                }
+                val dx = playerX - e.attackTargetX
+                val dy = playerY - e.attackTargetY
+                if (dx * dx + dy * dy <= 0.98f * 0.98f) {
+                    damagePlayer(e.kind.atk + 3, config)
+                }
+                spawnParticleBurst(e.attackTargetX, e.attackTargetY, 12, 0.82f, 0.42f, 0.18f, config)
+            }
+
+            EnemyAttackPattern.SLAM -> {
+                // The automaton's slow impact covers a circle, not just its facing.
+                val dx = playerX - e.x
+                val dy = playerY - e.y
+                if (dx * dx + dy * dy <= 1.95f * 1.95f &&
+                    hasLineOfSight(e.x, e.y, playerX, playerY)
+                ) {
+                    damagePlayer(e.kind.atk, config)
+                }
+                spawnParticleBurst(e.x, e.y, 18, 1f, 0.48f, 0.12f, config)
+            }
+
+            EnemyAttackPattern.CHARGE -> resolveBossCharge(e, config)
+
+            EnemyAttackPattern.FIRE_FAN -> fireEnemyProjectileFan(e)
+        }
+    }
+
+    private fun resolveBossCharge(e: EnemyActor, config: RenderConfig) {
+        val startX = e.x
+        val startY = e.y
+        var previousX = startX
+        var previousY = startY
+        var hitPlayer = false
+
+        // Move along the announced lane in short collision-checked steps.
+        for (step in 1..22) {
+            val nextX = startX + e.attackDirX * (step * 0.19f)
+            val nextY = startY + e.attackDirY * (step * 0.19f)
+            if (!map.isWalkable(nextX, nextY, e.kind.radius)) break
+
+            if (!hitPlayer && distancePointToSegmentSquared(
+                    playerX, playerY, previousX, previousY, nextX, nextY
+                ) <= 0.72f * 0.72f
+            ) {
+                damagePlayer(e.kind.atk + 5, config)
+                hitPlayer = true
+            }
+            e.x = nextX
+            e.y = nextY
+            previousX = nextX
+            previousY = nextY
+        }
+        spawnParticleBurst(e.x, e.y, 16, 0.92f, 0.30f, 0.12f, config)
+    }
+
+    private fun distancePointToSegmentSquared(
+        px: Float,
+        py: Float,
+        ax: Float,
+        ay: Float,
+        bx: Float,
+        by: Float
+    ): Float {
+        val abX = bx - ax
+        val abY = by - ay
+        val lengthSquared = abX * abX + abY * abY
+        if (lengthSquared <= 0.0001f) {
+            val dx = px - ax
+            val dy = py - ay
+            return dx * dx + dy * dy
+        }
+        val t = (((px - ax) * abX + (py - ay) * abY) / lengthSquared).coerceIn(0f, 1f)
+        val closestX = ax + abX * t
+        val closestY = ay + abY * t
+        val dx = px - closestX
+        val dy = py - closestY
+        return dx * dx + dy * dy
     }
 
     /**
@@ -1015,23 +1165,22 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
         }
     }
 
-    private fun fireEnemyProjectile(e: EnemyActor, dx: Float, dy: Float, dist: Float) {
-        val baseAngle = atan2(dy.toDouble(), dx.toDouble()).toFloat()
-        val count = if (e.kind == EnemyKind.BOSS_DEMON) 3 else 1
-        for (i in 0 until count) {
-            val offset = if (count == 1) 0f else (i - 1) * 0.28f
-            val angle = baseAngle + offset
+    private fun fireEnemyProjectileFan(e: EnemyActor) {
+        val baseAngle = atan2(e.attackDirY.toDouble(), e.attackDirX.toDouble()).toFloat()
+        // Five slower projectiles create lanes that can be read and dodged individually.
+        for (lane in -2..2) {
+            val angle = baseAngle + lane * 0.20f
             for (p in projectiles) {
                 if (!p.active) {
                     p.active = true
                     p.fromPlayer = false
                     p.x = e.x
                     p.y = e.y
-                    p.vx = cos(angle) * 5.8f
-                    p.vy = sin(angle) * 5.8f
+                    p.vx = cos(angle) * 4.9f
+                    p.vy = sin(angle) * 4.9f
                     p.damage = e.kind.atk
-                    p.life = 2.2f
-                    p.r = 1f; p.g = 0.32f; p.b = 0.18f
+                    p.life = 2.45f
+                    p.r = 0.78f; p.g = 0.32f; p.b = 1f
                     break
                 }
             }
@@ -1569,6 +1718,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                             target.y = se.y
                             target.facing = se.facing
                             target.attackWindup = 0f
+                            target.attackWindupDuration = 0f
+                            target.attackPattern = EnemyAttackPattern.NONE
                             target.hitFlash = 0f
                         }
                     }
