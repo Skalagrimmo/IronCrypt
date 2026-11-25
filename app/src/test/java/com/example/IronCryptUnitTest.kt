@@ -339,18 +339,18 @@ class IronCryptUnitTest {
     @Test
     fun enemyKindsUseDistinctTelegraphedAttackPatterns() {
         val cases = listOf(
-            EnemyKind.SKELETON to EnemyAttackPattern.SLASH,
-            EnemyKind.GARGOYLE to EnemyAttackPattern.POUNCE,
-            EnemyKind.AUTOMATON to EnemyAttackPattern.SLAM,
-            EnemyKind.BOSS_MECH to EnemyAttackPattern.CHARGE,
-            EnemyKind.BOSS_DEMON to EnemyAttackPattern.FIRE_FAN
+            Triple(EnemyKind.SKELETON, EnemyAttackPattern.SLASH, 0.72f),
+            Triple(EnemyKind.GARGOYLE, EnemyAttackPattern.POUNCE, 2.40f),
+            Triple(EnemyKind.AUTOMATON, EnemyAttackPattern.SLAM, 0.72f),
+            Triple(EnemyKind.BOSS_MECH, EnemyAttackPattern.CHARGE, 3.00f),
+            Triple(EnemyKind.BOSS_DEMON, EnemyAttackPattern.FIRE_FAN, 4.00f)
         )
         val resolvedPatterns = mutableSetOf<EnemyAttackPattern>()
 
-        for ((kind, expectedPattern) in cases) {
+        for ((kind, expectedPattern, distance) in cases) {
             val sim = GameSimulation()
             sim.resetRun(GamePhase.PLAYING)
-            val enemy = prepareSingleEnemy(sim, kind)
+            val enemy = prepareSingleEnemy(sim, kind, distance)
             val startingHp = sim.playerHp
 
             sim.update(0.016f, QualityTier.HIGH)
@@ -363,6 +363,45 @@ class IronCryptUnitTest {
         }
 
         assertEquals(5, resolvedPatterns.size)
+    }
+
+    @Test
+    fun enemiesSelectSecondaryMovesAtCloseRange() {
+        val cases = listOf(
+            EnemyKind.GARGOYLE to EnemyAttackPattern.SLASH,
+            EnemyKind.BOSS_MECH to EnemyAttackPattern.SLAM,
+            EnemyKind.BOSS_DEMON to EnemyAttackPattern.FIRE_ORB
+        )
+
+        for ((kind, expectedPattern) in cases) {
+            val sim = GameSimulation()
+            sim.resetRun(GamePhase.PLAYING)
+            val enemy = prepareSingleEnemy(sim, kind, 0.72f)
+            val startingHp = sim.playerHp
+
+            sim.update(0.016f, QualityTier.HIGH)
+
+            assertEquals("$kind should switch to its close-range move", expectedPattern, enemy.attackPattern)
+            assertTrue(enemy.attackWindup > 0f)
+            assertEquals(startingHp, sim.playerHp)
+        }
+
+        // The close-range demon orb is one slower, heavier projectile rather than another fan.
+        val sim = GameSimulation()
+        sim.resetRun(GamePhase.PLAYING)
+        val demon = prepareSingleEnemy(sim, EnemyKind.BOSS_DEMON, 0.72f)
+        sim.update(0.016f, QualityTier.HIGH)
+        assertEquals(EnemyAttackPattern.FIRE_ORB, demon.attackPattern)
+        sim.playerY += 2.0f
+        repeat(14) {
+            if (demon.attackPattern != EnemyAttackPattern.NONE) {
+                sim.update(0.05f, QualityTier.HIGH)
+            }
+        }
+        val orb = sim.projectiles.firstOrNull { it.active && !it.fromPlayer }
+        assertTrue("Close-range demon should launch a focused orb", orb != null)
+        assertEquals(demon.kind.atk + 8, orb!!.damage)
+        assertEquals(1, sim.projectiles.count { it.active && !it.fromPlayer })
     }
 
     @Test
@@ -385,7 +424,7 @@ class IronCryptUnitTest {
         run {
             val sim = GameSimulation()
             sim.resetRun(GamePhase.PLAYING)
-            val enemy = prepareSingleEnemy(sim, EnemyKind.GARGOYLE)
+            val enemy = prepareSingleEnemy(sim, EnemyKind.GARGOYLE, 2.40f)
             val targetX = enemy.attackTargetX
             val targetY = enemy.attackTargetY
             val startingHp = sim.playerHp
@@ -416,7 +455,7 @@ class IronCryptUnitTest {
         run {
             val sim = GameSimulation()
             sim.resetRun(GamePhase.PLAYING)
-            val enemy = prepareSingleEnemy(sim, EnemyKind.BOSS_MECH)
+            val enemy = prepareSingleEnemy(sim, EnemyKind.BOSS_MECH, 3.00f)
             val startingHp = sim.playerHp
             sim.update(0.016f, QualityTier.HIGH)
             assertEquals(EnemyAttackPattern.CHARGE, enemy.attackPattern)
@@ -431,7 +470,7 @@ class IronCryptUnitTest {
     fun demonFanLaunchesFiveProjectilesAlongItsTelegraphedLanes() {
         val sim = GameSimulation()
         sim.resetRun(GamePhase.PLAYING)
-        val enemy = prepareSingleEnemy(sim, EnemyKind.BOSS_DEMON)
+        val enemy = prepareSingleEnemy(sim, EnemyKind.BOSS_DEMON, 4.00f)
         val startingHp = sim.playerHp
 
         sim.update(0.016f, QualityTier.HIGH)
@@ -448,13 +487,13 @@ class IronCryptUnitTest {
         assertEquals(startingHp, sim.playerHp)
     }
 
-    private fun prepareSingleEnemy(sim: GameSimulation, kind: EnemyKind): com.example.game.engine.EnemyActor {
+    private fun prepareSingleEnemy(sim: GameSimulation, kind: EnemyKind, distance: Float = 0.72f): com.example.game.engine.EnemyActor {
         sim.enemies.forEach { it.active = false }
         sim.projectiles.forEach { it.active = false }
         val enemy = sim.enemies[0]
         enemy.active = true
         enemy.kind = kind
-        enemy.x = sim.playerX + 0.72f
+        enemy.x = sim.playerX + distance
         enemy.y = sim.playerY
         enemy.hp = kind.maxHp
         enemy.maxHp = kind.maxHp
