@@ -53,6 +53,7 @@ enum class EnemyKind(
 enum class EnemyAttackPattern {
     NONE,
     SLASH,
+    BASH,
     POUNCE,
     SLAM,
     CHARGE,
@@ -889,7 +890,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 if (e.attackWindup <= 0f) {
                     resolveEnemyAttack(e, config)
                     e.attackCooldown = when (e.attackPattern) {
-                        EnemyAttackPattern.SLASH -> 1.30f
+                        EnemyAttackPattern.SLASH -> if (e.kind == EnemyKind.GARGOYLE) 1.05f else 1.30f
+                        EnemyAttackPattern.BASH -> 1.25f
                         EnemyAttackPattern.POUNCE -> 1.90f
                         EnemyAttackPattern.SLAM -> 2.10f
                         EnemyAttackPattern.CHARGE -> 2.55f
@@ -950,8 +952,13 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 }
             }
             EnemyKind.AUTOMATON -> {
-                e.attackPattern = EnemyAttackPattern.SLAM
-                windup = 0.92f
+                if (dist <= 0.82f) {
+                    e.attackPattern = EnemyAttackPattern.BASH
+                    windup = 0.48f
+                } else {
+                    e.attackPattern = EnemyAttackPattern.SLAM
+                    windup = 0.92f
+                }
             }
             EnemyKind.BOSS_MECH -> {
                 if (dist <= 1.85f) {
@@ -992,6 +999,22 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 ) {
                     damagePlayer(e.kind.atk, config)
                     spawnParticleBurst(playerX, playerY, 5, 0.95f, 0.24f, 0.16f, config)
+                }
+            }
+
+            EnemyAttackPattern.BASH -> {
+                // The automaton's close-range fist is narrow and directional.
+                val dx = playerX - e.x
+                val dy = playerY - e.y
+                val dist = sqrt(dx * dx + dy * dy)
+                val dot = if (dist > 0.001f) {
+                    (dx * e.attackDirX + dy * e.attackDirY) / dist
+                } else 1f
+                if (dist <= 1.38f && dot >= 0.58f &&
+                    hasLineOfSight(e.x, e.y, playerX, playerY)
+                ) {
+                    damagePlayer(e.kind.atk + 2, config)
+                    spawnParticleBurst(playerX, playerY, 7, 1f, 0.48f, 0.12f, config)
                 }
             }
 
