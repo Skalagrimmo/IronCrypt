@@ -337,6 +337,29 @@ class IronCryptUnitTest {
     }
 
     @Test
+    fun enemyVisualProfilesHaveClearSizeHierarchy() {
+        // The basic skeleton is smaller than the hero's established ~1.2-tile silhouette.
+        assertTrue(EnemyKind.SKELETON.scaleH < 1.2f)
+
+        // The gargoyle's wings create a clearly wider silhouette than the ground automaton.
+        assertTrue(EnemyKind.GARGOYLE.scaleW > EnemyKind.AUTOMATON.scaleW)
+        assertTrue(EnemyKind.GARGOYLE.scaleW >= 1.5f)
+
+        // The automaton is a heavier, taller-than-human ground unit.
+        assertTrue(EnemyKind.AUTOMATON.scaleH >= 1.5f)
+
+        // Both bosses are around twice the height of a normal humanoid enemy.
+        assertTrue(EnemyKind.BOSS_MECH.scaleH >= 2.0f)
+        assertTrue(EnemyKind.BOSS_DEMON.scaleH >= 2.0f)
+        assertTrue(EnemyKind.BOSS_DEMON.scaleW >= 2.0f)
+
+        // Their floor collision footprints grow modestly, not to the full sprite width.
+        assertTrue(EnemyKind.GARGOYLE.radius > EnemyKind.SKELETON.radius)
+        assertTrue(EnemyKind.BOSS_MECH.radius > EnemyKind.AUTOMATON.radius)
+        assertTrue(EnemyKind.BOSS_MECH.radius < EnemyKind.BOSS_MECH.scaleW * 0.5f)
+    }
+
+    @Test
     fun enemyKindsUseDistinctTelegraphedAttackPatterns() {
         val cases = listOf(
             Triple(EnemyKind.SKELETON, EnemyAttackPattern.SLASH, 0.72f),
