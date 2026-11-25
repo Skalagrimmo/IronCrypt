@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.game.engine.AnimationCategory
 import com.example.game.engine.AnimationState
 import com.example.game.engine.AdaptiveQualityGovernor
+import com.example.game.engine.EnemyAttackPattern
 import com.example.game.engine.GameSimulation
 import com.example.game.engine.DungeonMap
 import com.example.game.engine.HeroAnimationController
@@ -255,6 +256,10 @@ class DarkHeroAnimationAndAtlasTest {
         sim.enemies[0].x = sim.playerX + 0.5f
         sim.enemies[0].y = sim.playerY
         sim.enemies[0].attackWindup = 0.01f
+        sim.enemies[0].attackWindupDuration = 0.01f
+        sim.enemies[0].attackPattern = EnemyAttackPattern.SLASH
+        sim.enemies[0].attackDirX = -1f
+        sim.enemies[0].attackDirY = 0f
         sim.playerHp = 2
         sim.invulnTimer = 0f
         sim.update(0.02f, QualityTier.HIGH)
