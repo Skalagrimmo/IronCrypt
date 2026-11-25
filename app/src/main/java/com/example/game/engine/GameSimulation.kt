@@ -56,7 +56,8 @@ enum class EnemyAttackPattern {
     POUNCE,
     SLAM,
     CHARGE,
-    FIRE_FAN
+    FIRE_FAN,
+    FIRE_ORB
 }
 
 class EnemyActor {
@@ -893,6 +894,7 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                         EnemyAttackPattern.SLAM -> 2.10f
                         EnemyAttackPattern.CHARGE -> 2.55f
                         EnemyAttackPattern.FIRE_FAN -> 1.80f
+                        EnemyAttackPattern.FIRE_ORB -> 1.45f
                         EnemyAttackPattern.NONE -> 1.45f
                     }
                     e.attackPattern = EnemyAttackPattern.NONE
@@ -935,20 +937,35 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                 windup = 0.46f
             }
             EnemyKind.GARGOYLE -> {
-                e.attackPattern = EnemyAttackPattern.POUNCE
-                windup = 0.78f
+                if (dist <= 1.55f) {
+                    e.attackPattern = EnemyAttackPattern.SLASH
+                    windup = 0.38f
+                } else {
+                    e.attackPattern = EnemyAttackPattern.POUNCE
+                    windup = 0.78f
+                }
             }
             EnemyKind.AUTOMATON -> {
                 e.attackPattern = EnemyAttackPattern.SLAM
                 windup = 0.92f
             }
             EnemyKind.BOSS_MECH -> {
-                e.attackPattern = EnemyAttackPattern.CHARGE
-                windup = 1.02f
+                if (dist <= 1.85f) {
+                    e.attackPattern = EnemyAttackPattern.SLAM
+                    windup = 0.90f
+                } else {
+                    e.attackPattern = EnemyAttackPattern.CHARGE
+                    windup = 1.02f
+                }
             }
             EnemyKind.BOSS_DEMON -> {
-                e.attackPattern = EnemyAttackPattern.FIRE_FAN
-                windup = 0.84f
+                if (dist <= 3.60f) {
+                    e.attackPattern = EnemyAttackPattern.FIRE_ORB
+                    windup = 0.62f
+                } else {
+                    e.attackPattern = EnemyAttackPattern.FIRE_FAN
+                    windup = 0.84f
+                }
             }
         }
         e.attackWindup = windup
@@ -1005,6 +1022,8 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
             EnemyAttackPattern.CHARGE -> resolveBossCharge(e, config)
 
             EnemyAttackPattern.FIRE_FAN -> fireEnemyProjectileFan(e)
+
+            EnemyAttackPattern.FIRE_ORB -> fireEnemyProjectileOrb(e)
         }
     }
 
@@ -1199,6 +1218,24 @@ class GameSimulation(val map: DungeonMap = DungeonMap()) {
                     p.r = 0.78f; p.g = 0.32f; p.b = 1f
                     break
                 }
+            }
+        }
+    }
+
+    private fun fireEnemyProjectileOrb(e: EnemyActor) {
+        val angle = atan2(e.attackDirY.toDouble(), e.attackDirX.toDouble()).toFloat()
+        for (p in projectiles) {
+            if (!p.active) {
+                p.active = true
+                p.fromPlayer = false
+                p.x = e.x
+                p.y = e.y
+                p.vx = cos(angle) * 3.6f
+                p.vy = sin(angle) * 3.6f
+                p.damage = e.kind.atk + 8
+                p.life = 3.0f
+                p.r = 0.92f; p.g = 0.18f; p.b = 0.92f
+                break
             }
         }
     }
