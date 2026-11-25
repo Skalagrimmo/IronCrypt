@@ -745,7 +745,7 @@ class IronCryptRenderer(
         for (e in simulation.enemies) {
             if (!e.active || e.hp >= e.maxHp) continue
             val ratio = (e.hp.toFloat() / e.maxHp.toFloat()).coerceIn(0f, 1f)
-            val bw = if (e.kind.isBoss) 1.35f else 0.78f
+            val bw = if (e.kind.isBoss) (e.kind.scaleW * 0.78f).coerceIn(1.55f, 1.90f) else 0.78f
             val bx = e.x - bw * 0.5f
             val by = e.y - e.kind.scaleH * 0.92f
             // Dark frame
